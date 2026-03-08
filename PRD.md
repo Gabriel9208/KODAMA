@@ -3,17 +3,17 @@
 ## 1. Product Vision and Goals
 
 ### 1.1 Vision
-Core Goal: Develop an "Edge Visual Understanding Engine" designed specifically for the visually impaired.
+Core Goal: Develop a robust "Egocentric Scene Understanding Engine" for uncontrollable environments.
 
-While autonomous driving has benefited from computer vision, egocentric scene understanding remains a challenge. Traditional white canes are limited by physical length and cannot detect suspended objects or fast-moving threats. Guide dogs are expensive and scarce.
+While autonomous driving has benefited from computer vision, scene understanding from an egocentric (first-person) perspective remains a challenge due to motion blur, occlusion, and dynamic lighting.
 
-This project aims to bridge this gap by creating a system that runs on wearable edge devices (performance $\le$ RTX 2060 equivalent) without cloud dependency, providing millisecond-level warnings for 3D dynamic obstacles in complex environments.
+This project aims to solve these challenges by creating a lightweight, real-time system capable of detecting 3D dynamic obstacles and traversable areas. The primary application scenario is assisting the visually impaired, serving as a technical verification for "Edge Visual Understanding".
 
 ### 1.2 Goals         
-**Product Goals:** 
+**Project Goals:** 
 1. **P0 (Core):** Real-time Panoptic Perception. Simultaneous processing of semantic and instance segmentation from monocular RGB images.
 2. **P1 (Safety):** Zero-tolerance for close-range misses. Recall rate > 95% for obstacles within 2 meters.
-3. **Constraint:** Inference delay < 50ms ( > 20 FPS) with VRAM usage < 4.5 GB to accommodate OS and drivers.
+3. **Constraint:** Inference delay < 50ms ( > 20 FPS) with VRAM usage < 4.5 GB (Targeting mid-range consumer GPUs).
 
 ## 2. Functional Requirements
 
@@ -35,33 +35,17 @@ This project aims to bridge this gap by creating a system that runs on wearable 
 *   **Acceptance Criteria:**
     *   **Recall Constraint:** For obstacles within 2 meters, the Recall rate must be > 95%.
     *   Distance estimation tolerance can be looser for objects > 10 meters away.
-    *   Alert intensity must correlate with the urgency of the threat (distance + velocity).
-
-### 2.4 Feature: Multi-modal Feedback Interface
-*   **User Story:** As a user, I want to receive feedback via audio or haptic signals so that I can be aware of my surroundings without relying on sight.
-*   **Acceptance Criteria:**
-    *   Support for audio output (Text-to-Speech or warning tones) via headphones/speakers.
-    *   Support for haptic feedback (vibration) if a wearable interface is connected.
-    *   Users can customize the type of feedback (e.g., silent mode with vibration only).
+    *   System must output risk levels correlated with the urgency of the threat (distance + velocity).
 
 ## 3. Non-functional Requirements
 
 ### 3.1 Performance
 *   **Response Time:** 
     1. Inference delay < 50ms per frame.
-    2. System end-to-end latency (camera to feedback) less than 100ms.
 *   **Frame Rate:** Minimum 15 FPS (Frames Per Second) to ensure smooth tracking.
 *   **Resource Usage:** VRAM usage must be strictly < 4.5 GB during inference.
 
-### 3.2 Hardware & Environment
-*   **Compute Target:** Wearable/Portable edge devices with compute capability equivalent to or lower than NVIDIA RTX 2060.
-*   **Connectivity:** Must function 100% offline (no cloud dependency).
-
-### 3.3 Reliability
-*   **Stability:** The system must run continuously for at least 1 hour without crashing or overheating.
-
-## 4. Technical Architecture Strategy (CS231n Scope)
-
+## 4. Technical Architecture Strategy
 ### 4.1 Neural Network Architecture
 *   **Base Model:** Modified **YOLOv12-Nano**.
 *   **Backbone:** **R-ELAN** architecture. Utilizes block-level residual connections and optimized feature aggregation to capture high-frequency edge details in shallow layers (crucial for mask quality).
