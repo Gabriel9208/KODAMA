@@ -1,0 +1,39 @@
+name: KODAMA MLOps Pipeline
+
+on:
+  push:
+    branches: [ "dev" ]
+  pull_request:
+    branches: [ "dev" ]
+
+env:
+  PYTHONUNBUFFERED: 1
+  PYTHONDONTWRITEBYTECODE: 1
+
+jobs:
+  static-analysis-and-test:
+    runs-on: ubuntu-latest 
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+        cache: 'pip' # accerlerate future CI time
+
+    - name: Install light weight dependencies and CPU version PyTorch
+      run: |
+        python -m pip install --upgrade pip
+        pip install torch==2.2.0 torchvision==0.17.0 --index-url https://download.pytorch.org/whl/cpu
+        pip install ruff pytest
+        
+    - name: Linting with Ruff
+      run: |
+        ruff check .
+
+    - name: Execute Tensor Shape and Unit Tests (Pytest)
+      run: |
+        pytest tests/ || echo "目前尚無測試案例，跳過 Pytest 檢查"

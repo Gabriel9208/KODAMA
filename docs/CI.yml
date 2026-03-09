@@ -1,0 +1,50 @@
+# This is a template for CI workflow
+name: name
+
+# 觸發條件：當推送或發起 PR 到 main 分支時自動執行
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+# 定義環境變數，確保 CI 執行時不會產生多餘的快取檔案
+env:
+  PYTHONUNBUFFERED: 1
+  PYTHONDONTWRITEBYTECODE: 1
+
+jobs:
+  lint-and-shape-test:
+    name: 靜態分析與張量維度測試
+    runs-on: ubuntu-latest # 使用 GitHub 免費提供的 Linux 虛擬機 (無 GPU)
+
+    steps:
+      - name: 1. 檢出專案程式碼
+        uses: actions/checkout@v4
+
+      - name: 2. 設定 Python 3.11 環境
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: 'pip' # 啟用 pip 快取，大幅縮短後續 CI 執行時間
+
+      - name: 3. 安裝核心依賴與 CPU 版 PyTorch (節省空間與時間)
+        run: |
+          python -m pip install --upgrade pip
+          # 【嚴格規範】CI 環境只有雙核 CPU 與 7GB RAM。
+          # 絕對禁止在此拉取 2.5GB 的 CUDA 版 PyTorch，這會導致 CI 超時或硬碟空間不足。
+          # 我們在此強制安裝 CPU 版本，僅用於推導矩陣形狀。
+          pip install torch==2.2.0 torchvision==0.17.0 torchaudio==2.2.0 --index-url https://download.pytorch.org/whl/cpu
+          pip install ruff pytest numpy
+
+      - name: 4. 程式碼靜態分析 (Ruff Linting)
+        run: |
+          # 檢查是否有未使用的變數 (可能導致記憶體洩漏)、語法錯誤或不符合 PEP8 的縮排
+          # --output-format=github 能直接在 PR 的程式碼旁標註錯誤
+          ruff check . --output-format=github
+
+      - name: 5. 執行 TDD 張量維度測試 (Pytest)
+        run: |
+          # 執行 tests/ 目錄下的所有測試，驗證 Dummy Input/Output Shapes
+          # 若發生矩陣維度不匹配 (Shape Mismatch) 或 NaN 梯度風險，CI 將立即亮紅燈中斷
+          pytest tests/ -v
