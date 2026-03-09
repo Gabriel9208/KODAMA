@@ -1,0 +1,20 @@
+# Core Deep Learning (Strict Constraint: PyTorch 2.2 + CUDA 12.1)
+# Note: In CI environments, you may need --index-url https://download.pytorch.org/whl/cu121
+torch==2.2.0
+torchvision==0.17.0
+
+# Computer Vision & Numerical Operations
+numpy>=1.24.0
+opencv-python>=4.8.0
+pillow>=10.0.0
+scipy
+
+# MLOps & Experiment Tracking (Per GEMINI.md Section 4)
+wandb
+mlflow
+dvc
+
+# Development & Testing (TDD Requirement)
+pytest
+tqdm
+pyyaml
