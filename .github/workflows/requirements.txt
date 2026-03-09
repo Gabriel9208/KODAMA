@@ -1,5 +1,4 @@
 # Core Deep Learning (Strict Constraint: PyTorch 2.2 + CUDA 12.1)
-# Note: In CI environments, you may need --index-url https://download.pytorch.org/whl/cu121
 torch==2.2.0
 torchvision==0.17.0
 
@@ -17,4 +16,4 @@ dvc
 # Development & Testing (TDD Requirement)
 pytest
 tqdm
-pyyaml
+pyyaml 
