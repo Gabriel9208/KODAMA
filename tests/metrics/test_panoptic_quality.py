@@ -1,6 +1,6 @@
 import pytest
 import torch
-from src.metrics.panoptic_quality import calculate_pq, PanopticQualityResult
+from src.metrics.panoptic_quality import calculate_pq
 
 def test_pq_perfect_match():
     shape = (100, 100, 2) # h, w, (sementic id, instance id)
