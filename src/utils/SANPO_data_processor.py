@@ -2,6 +2,7 @@ import gzip
 import numpy as np
 import cv2
 import os
+import math
 
 class SANPO_data_processor:
     @staticmethod
@@ -20,13 +21,15 @@ class SANPO_data_processor:
             raise IOError(f"Fail to read {image_path}: {e}")
 
         height, width, _ = image.shape
-        assert height == H and width == W, \
-            f"Fatal Error: Image resolution does not match expected size. Expected {(H, W)}, got {(height, width)}"
+        
+        if not math.isclose(width/height, W/H):
+            raise ValueError(f"Image resolution aspect ratio does not match expected ratio. Expected {W/H}, got {width/height}")
+
 
         patches = {
-            "left": image[:, 0:1242],
-            "center": image[:, 483:1725],
-            "right": image[:, 966:W]
+            "left": image[:, 0:height],
+            "center": image[:, width//2-height//2:width//2+height//2],
+            "right": image[:, width-height:width]
         }
 
         resized_patches = {}
@@ -53,10 +56,6 @@ class SANPO_data_processor:
             with gzip.open(gz_file_path, 'rb') as f:
                 raw_bytes = f.read()
 
-            expected_bytes = DEPTH_H * DEPTH_W * 2 + 4 
-            assert len(raw_bytes) == expected_bytes, \
-                f"Fatal Error: Incorrect Byte Count. Expected {expected_bytes}, got {len(raw_bytes)}"
-
             # First 4 bytes are header, the rest are pixel data
             pixel_bytes = raw_bytes[4:]
 
@@ -69,11 +68,12 @@ class SANPO_data_processor:
         depth_f32 = depth_f16.astype(np.float32)
         depth_f32 = np.nan_to_num(depth_f32, nan=0.0)
 
+        height, width = depth_f32.shape
 
         patches = {
-            "left": depth_f32[0:720, 0:720],
-            "center": depth_f32[0:720, 280:1000],
-            "right": depth_f32[0:720, 560:1280]
+            "left": depth_f32[:, 0:height],
+            "center": depth_f32[:, width//2-height//2:width//2+height//2],
+            "right": depth_f32[:, width-height:width]
         }
 
         if not os.path.exists(save_dir):
