@@ -1,4 +1,32 @@
 from src.datasets.SANPO__dataset import SANPO__dataset
+import torch
 
 def test_SANPO__dataset():
-    pass
+
+    data_dir = r"C:\Users\yen08\Desktop\KODAMA\data\processed\-5OCPnbrwJdu3jH70ieU7pUiFsOJQoeG\camera_chest\left"
+
+    dataset = SANPO__dataset(data_dir=data_dir)
+
+    assert dataset is not None
+    assert dataset[0] is not None, "First sample should not be None"
+
+    rgb, seg, depth = dataset[0]
+    assert rgb is not None, "RGB should not be None"
+    assert seg is not None, "Seg should not be None"
+    assert depth is not None, "Depth should not be None"
+
+    assert rgb.shape == (3, 640, 640), "Sample shape should be (3, 640, 640)"
+    assert seg.shape == (640, 640), "Sample shape should be (640, 640)"
+    assert depth.shape == (640, 640), "Sample shape should be (640, 640)"
+
+    assert rgb.dtype == torch.float32, "RGB should be float32"
+    assert seg.dtype == torch.long, "Seg should be long"
+    assert depth.dtype == torch.float32, "Depth should be float32"    
+
+    assert not torch.isnan(rgb).any(), "RGB should not contain NaN"
+    assert not torch.isnan(seg).any(), "Seg should not contain NaN"
+    assert not torch.isnan(depth).any(), "Depth should not contain NaN"
+
+    assert dataset[0][0].min() >= 0 and dataset[0][0].max() <= 255, "RGB values should be in range [0, 255]"
+    assert dataset[0][1].min() >= 0 and dataset[0][1].max() <= 255, "Seg values should be in range [0, 255]"
+    assert dataset[0][2].min() >= 0, "Depth values should be >= 0"
