@@ -10,3 +10,6 @@
 * Data Version Control (DVC)
 * Test Driven Development (pytest)
 * Specification Driven Development (Markdown)
+
+## Tech
+* Panoptic segmentation and PQ metric

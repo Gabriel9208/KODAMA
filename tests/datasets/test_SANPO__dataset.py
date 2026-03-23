@@ -16,11 +16,11 @@ def test_SANPO__dataset():
     assert depth is not None, "Depth should not be None"
 
     assert rgb.shape == (3, 640, 640), "Sample shape should be (3, 640, 640)"
-    assert seg.shape == (640, 640), "Sample shape should be (640, 640)"
+    assert seg.shape == (2, 640, 640), "Sample shape should be (2, 640, 640)"
     assert depth.shape == (640, 640), "Sample shape should be (640, 640)"
 
-    assert rgb.dtype == torch.float32, "RGB should be float32"
-    assert seg.dtype == torch.long, "Seg should be long"
+    assert rgb.dtype == torch.int32, "RGB should be int32"
+    assert seg.dtype == torch.int32, "Seg should be int32"
     assert depth.dtype == torch.float32, "Depth should be float32"    
 
     assert not torch.isnan(rgb).any(), "RGB should not contain NaN"

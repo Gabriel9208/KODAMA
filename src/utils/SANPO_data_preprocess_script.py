@@ -63,3 +63,5 @@ def preprocess_sanpo_data_generalized():
 
 if __name__ == "__main__":
     preprocess_sanpo_data_generalized()
+
+## TODO: Pick one frame every 10 frames
