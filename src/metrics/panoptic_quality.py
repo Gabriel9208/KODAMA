@@ -16,6 +16,8 @@ class PanopticQualityResult:
     mPQ: float
     mSQ: float
     mRQ: float
+    PQ_th: float  # Things # TODO
+    PQ_st: float  # Stuff only # TODO
     classes: dict[int, PanopticQuality]
     
 
