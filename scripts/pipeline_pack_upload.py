@@ -6,6 +6,7 @@ Usage:
     python scripts/pipeline_pack_upload.py
 """
 
+import glob as globmod
 import json
 import logging
 import os
@@ -13,11 +14,13 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
 import cv2
+import webdataset as wds
 import yaml
 
 # Add src/ to path for SANPO_data_processor import
@@ -37,11 +40,15 @@ SESSION_IDS_FILE = DATA_DIR / "sanpo_dataset_v0_sanpo-real_splits_train_session_
 DECIMATION_CONFIG_FILE = PROJECT_ROOT / "configs" / "decimation_config.yaml"
 
 GCS_BUCKET = "gs://gresearch/sanpo_dataset/v0/sanpo-real"
+GDRIVE_REMOTE = "gdrive:SANPO-Dataset/shards/"
 
 # Phase 0 constants
 BATCH_SIZE = 4
 DISK_SAFETY_FACTOR = 1.5
 ESTIMATED_SESSION_SIZE_GB = 8
+
+# Phase 2 constants
+SHARD_MAX_SIZE = 1.5e9  # 1.5 GB per shard
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -695,6 +702,264 @@ def phase1_validate_decimate_preprocess(progress: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Phase 2: Pack into WebDataset shards
+# ---------------------------------------------------------------------------
+
+def _get_batch_index(progress: dict) -> int:
+    """Determine the current batch index from progress."""
+    return progress.get("next_batch_index", 0)
+
+
+def _increment_batch_index(progress: dict) -> None:
+    """Increment batch index after a successful batch."""
+    progress["next_batch_index"] = progress.get("next_batch_index", 0) + 1
+
+
+def _parse_processed_filename(filename: str) -> tuple[str, str] | None:
+    """
+    Parse a processed filename like '000010_left.png' → ('000010', 'left').
+    Returns None if parsing fails.
+    """
+    match = re.match(r"^(\d+)_(left|center|right)", filename)
+    if match:
+        return match.group(1), match.group(2)
+    return None
+
+
+def phase2_pack(batch_sessions: list[str], progress: dict) -> dict:
+    """Pack all processed sessions in the batch into WebDataset shards."""
+    # Safety: data/shards/ must be empty
+    SHARDS_DIR.mkdir(parents=True, exist_ok=True)
+    existing_shards = list(SHARDS_DIR.glob("shard-*.tar"))
+    if existing_shards:
+        logger.error(
+            f"data/shards/ is not empty ({len(existing_shards)} files). "
+            "Previous batch cleanup incomplete. Aborting."
+        )
+        return progress
+
+    batch_index = _get_batch_index(progress)
+    shard_pattern = str(SHARDS_DIR / f"shard-{batch_index:03d}-%06d.tar")
+    decimation_config = progress["decimation_config"]
+
+    total_samples = 0
+    expected_samples = sum(
+        progress["sessions"][sid].get("patch_count", 0) for sid in batch_sessions
+    )
+
+    logger.info(
+        f"Phase 2: Packing {len(batch_sessions)} sessions into shards "
+        f"(batch {batch_index}, expected ~{expected_samples} samples)"
+    )
+
+    with wds.ShardWriter(shard_pattern, maxsize=SHARD_MAX_SIZE) as sink:
+        for sid in batch_sessions:
+            session_info = progress["sessions"][sid]
+            valid_cameras = session_info.get("valid_cameras", [])
+
+            for camera in valid_cameras:
+                camera_short = camera.replace("camera_", "")
+                proc_base = PROCESSED_DIR / sid / camera / "left"
+                video_dir = proc_base / "video_frames"
+                seg_dir = proc_base / "segmentation_masks"
+                depth_dir = proc_base / "depth_maps"
+
+                if not video_dir.exists():
+                    logger.warning(f"  {sid}/{camera}: video_frames dir missing, skipping")
+                    continue
+
+                rgb_files = sorted(
+                    f for f in os.listdir(video_dir) if f.endswith(".png")
+                )
+
+                for rgb_filename in rgb_files:
+                    parsed = _parse_processed_filename(rgb_filename)
+                    if not parsed:
+                        continue
+                    frame_index, patch = parsed
+
+                    key = f"{sid}_{camera_short}_{frame_index}_{patch}"
+
+                    seg_file = seg_dir / f"{frame_index}_{patch}.png"
+                    depth_file = depth_dir / f"{frame_index}_{patch}_float16.npy"
+
+                    if not seg_file.exists() or not depth_file.exists():
+                        logger.warning(f"  Missing files for {key}, skipping")
+                        continue
+
+                    metadata = {
+                        "session_id": sid,
+                        "camera": camera,
+                        "side": "left",
+                        "frame_index": int(frame_index),
+                        "patch": patch,
+                        "original_filename": f"{frame_index}.png",
+                        "decimation_interval": decimation_config["interval"],
+                        "decimation_offset": decimation_config["offset"],
+                    }
+
+                    sample = {
+                        "__key__": key,
+                        "png": open(video_dir / rgb_filename, "rb").read(),
+                        "_seg.png": open(seg_file, "rb").read(),
+                        "_depth.npy": open(depth_file, "rb").read(),
+                        "json": json.dumps(metadata).encode("utf-8"),
+                    }
+                    sink.write(sample)
+                    total_samples += 1
+
+    # Record shard files
+    shard_files = sorted(f.name for f in SHARDS_DIR.glob("shard-*.tar"))
+    logger.info(
+        f"Phase 2: Packed {total_samples} samples into {len(shard_files)} shards"
+    )
+
+    if total_samples == 0:
+        logger.error("Phase 2: No samples packed. Aborting.")
+        return progress
+
+    # Integrity check: verify shard contents
+    verified_count = 0
+    for shard_file in shard_files:
+        shard_path = SHARDS_DIR / shard_file
+        with tarfile.open(shard_path, "r") as tar:
+            members = tar.getnames()
+            # Group by key prefix
+            keys = set()
+            for m in members:
+                # Extract key (everything before the first extension)
+                base = m.split(".")[0]
+                keys.add(base)
+            verified_count += len(keys)
+
+    if verified_count != total_samples:
+        logger.warning(
+            f"Phase 2 integrity: expected {total_samples} samples, "
+            f"found {verified_count} in shards"
+        )
+
+    # Update all batch sessions
+    for sid in batch_sessions:
+        progress["sessions"][sid]["status"] = "packed"
+        progress["sessions"][sid]["packed_at"] = _now_iso()
+        progress["sessions"][sid]["shard_files"] = shard_files
+
+    save_progress(progress)
+    return progress
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: Upload + Verify + Clean
+# ---------------------------------------------------------------------------
+
+def phase3a_upload(batch_sessions: list[str], progress: dict) -> dict:
+    """Upload shards to Google Drive via rclone."""
+    logger.info("Phase 3a: Uploading shards to Google Drive ...")
+
+    result = subprocess.run(
+        [
+            "rclone", "copy",
+            str(SHARDS_DIR),
+            GDRIVE_REMOTE,
+            "--transfers", "4",
+            "--drive-chunk-size", "128M",
+            "--progress",
+        ],
+        capture_output=False,  # Show progress in terminal
+    )
+
+    if result.returncode != 0:
+        logger.error("Phase 3a: rclone copy failed. Will retry on next run.")
+        return progress
+
+    for sid in batch_sessions:
+        progress["sessions"][sid]["status"] = "uploaded"
+        progress["sessions"][sid]["uploaded_at"] = _now_iso()
+
+    save_progress(progress)
+    logger.info("Phase 3a: Upload complete.")
+    return progress
+
+
+def phase3b_verify(batch_sessions: list[str], progress: dict) -> dict:
+    """Verify uploaded shards via rclone check."""
+    logger.info("Phase 3b: Verifying shards on Google Drive ...")
+
+    result = subprocess.run(
+        [
+            "rclone", "check",
+            str(SHARDS_DIR),
+            GDRIVE_REMOTE,
+            "--one-way",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        logger.error(
+            f"Phase 3b: rclone check failed.\n{result.stderr.strip()}\n"
+            "Will re-upload and re-verify on next run."
+        )
+        # Revert to "packed" so next run re-uploads
+        for sid in batch_sessions:
+            progress["sessions"][sid]["status"] = "packed"
+        save_progress(progress)
+        return progress
+
+    for sid in batch_sessions:
+        progress["sessions"][sid]["status"] = "verified"
+        progress["sessions"][sid]["verified_at"] = _now_iso()
+
+    save_progress(progress)
+    logger.info("Phase 3b: Verification passed.")
+    return progress
+
+
+def phase3c_cleanup(batch_sessions: list[str], progress: dict) -> dict:
+    """Delete local raw, processed, and shard files after verification."""
+    # Safety: all batch sessions must be verified
+    all_verified = all(
+        progress["sessions"][sid]["status"] == "verified"
+        for sid in batch_sessions
+    )
+    if not all_verified:
+        logger.error("Phase 3c: Not all sessions verified. Aborting cleanup.")
+        return progress
+
+    logger.info(f"Phase 3c: Cleaning up {len(batch_sessions)} sessions ...")
+
+    # Delete per-session raw and processed data
+    for sid in batch_sessions:
+        raw_dir = RAW_DIR / sid
+        proc_dir = PROCESSED_DIR / sid
+
+        if raw_dir.exists():
+            shutil.rmtree(raw_dir)
+            logger.info(f"  Deleted raw: {sid}")
+
+        if proc_dir.exists():
+            shutil.rmtree(proc_dir)
+            logger.info(f"  Deleted processed: {sid}")
+
+    # Delete all shards in data/shards/
+    shard_files = list(SHARDS_DIR.glob("shard-*.tar"))
+    for f in shard_files:
+        f.unlink()
+    logger.info(f"  Deleted {len(shard_files)} shard files")
+
+    # Update status
+    for sid in batch_sessions:
+        progress["sessions"][sid]["status"] = "cleaned"
+        progress["sessions"][sid]["cleaned_at"] = _now_iso()
+
+    _increment_batch_index(progress)
+    save_progress(progress)
+    logger.info("Phase 3c: Cleanup complete. Ready for next batch.")
+    return progress
+
+
+# ---------------------------------------------------------------------------
 # Main orchestrator
 # ---------------------------------------------------------------------------
 
@@ -753,17 +1018,82 @@ def main():
         # Phase 1: Validation + Decimation + Preprocessing
         progress = phase1_validate_decimate_preprocess(progress)
 
-        # TODO: Phase 2 — Pack into WebDataset shards
-        # TODO: Phase 3 — Upload + Verify + Clean
-
-        processed = [
+        # Collect batch sessions for Phase 2-3
+        # Batch = sessions that are "processed" (ready to pack)
+        # Also include sessions already in pack/upload/verify flow
+        batch_sessions = [
             sid for sid in all_session_ids
-            if progress["sessions"].get(sid, {}).get("status") == "processed"
+            if progress["sessions"].get(sid, {}).get("status")
+            in ("processed", "packed", "uploaded", "verified")
         ]
-        logger.info(
-            f"{len(processed)} sessions processed, awaiting Phase 2-3 implementation."
-        )
-        break  # Stop here until Phase 2-3 are implemented
+
+        if not batch_sessions:
+            logger.info("No sessions ready for Phase 2-3.")
+            continue
+
+        # Determine which phase to resume from (use the minimum status)
+        statuses = {
+            progress["sessions"][sid]["status"] for sid in batch_sessions
+        }
+
+        # Phase 2: Pack
+        if "processed" in statuses:
+            # Only pack sessions that are in "processed" state
+            to_pack = [
+                sid for sid in batch_sessions
+                if progress["sessions"][sid]["status"] == "processed"
+            ]
+            progress = phase2_pack(to_pack, progress)
+            # Re-check: if packing failed, stop
+            if any(
+                progress["sessions"][sid]["status"] != "packed"
+                for sid in to_pack
+            ):
+                logger.warning("Phase 2 incomplete. Stopping this batch.")
+                break
+
+        # Refresh batch list (now all should be packed or further)
+        batch_sessions = [
+            sid for sid in all_session_ids
+            if progress["sessions"].get(sid, {}).get("status")
+            in ("packed", "uploaded", "verified")
+        ]
+
+        # Phase 3a: Upload
+        packed = [
+            sid for sid in batch_sessions
+            if progress["sessions"][sid]["status"] == "packed"
+        ]
+        if packed:
+            progress = phase3a_upload(batch_sessions, progress)
+            if any(
+                progress["sessions"][sid]["status"] != "uploaded"
+                for sid in packed
+            ):
+                logger.warning("Phase 3a upload incomplete. Will retry on next run.")
+                break
+
+        # Phase 3b: Verify
+        uploaded = [
+            sid for sid in batch_sessions
+            if progress["sessions"][sid]["status"] == "uploaded"
+        ]
+        if uploaded:
+            progress = phase3b_verify(batch_sessions, progress)
+            if any(
+                progress["sessions"][sid]["status"] != "verified"
+                for sid in uploaded
+            ):
+                logger.warning("Phase 3b verification failed. Will retry on next run.")
+                break
+
+        # Phase 3c: Cleanup
+        verified = [
+            sid for sid in batch_sessions
+            if progress["sessions"][sid]["status"] == "verified"
+        ]
+        if verified:
+            progress = phase3c_cleanup(batch_sessions, progress)
 
 
 if __name__ == "__main__":

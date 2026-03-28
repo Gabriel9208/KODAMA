@@ -145,7 +145,7 @@ Example (interval=10, offset=0, 527 frames total):
       "downloaded_at": "2026-03-28T10:00:00",
       "validated_at": "2026-03-28T10:05:00",
       "valid_cameras": ["camera_chest"],
-      "total_frames": {"camera_chest": 527},
+      "total_frames": { "camera_chest": 527 },
       "decimated_at": "2026-03-28T10:15:00",
       "processed_at": "2026-03-28T10:30:00",
       "packed_at": "2026-03-28T10:45:00",
@@ -229,14 +229,14 @@ Before all I/O operations: `os.makedirs(target_dir, exist_ok=True)`. Applies to:
 
 ### 7.3 File Integrity Checks
 
-| Timing                        | Check Content                                                                                                                                                                     |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| After download                | `video_frames/` exists and is non-empty                                                                                                                                           |
+| Timing                        | Check Content                                                                                                                                                                                                                                 |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| After download                | `video_frames/` exists and is non-empty                                                                                                                                                                                                       |
 | **Pre-Decimation Validation** | **Per-camera check: seg_masks and depth_maps directories exist and non-empty; file counts match across all three types; frame IDs are aligned. FAIL → delete that camera's raw data only. Session marked `skipped` only if all cameras fail** |
-| After decimation              | Sampled counts match across all three data types, indices match parameters                                                                                                        |
-| After preprocessing           | Each frame produced 9 files (3 patches × 3 data types)                                                                                                                            |
-| After packing                 | Each shard sample contains `.png` + `_seg.png` + `_depth.npy` + `.json`                                                                                                           |
-| After upload                  | `rclone check` checksum comparison                                                                                                                                                |
+| After decimation              | Sampled counts match across all three data types, indices match parameters                                                                                                                                                                    |
+| After preprocessing           | Each frame produced 9 files (3 patches × 3 data types)                                                                                                                                                                                        |
+| After packing                 | Each shard sample contains `.png` + `_seg.png` + `_depth.npy` + `.json`                                                                                                                                                                       |
+| After upload                  | `rclone check` checksum comparison                                                                                                                                                                                                            |
 
 ### 7.4 Progress File Protection
 
@@ -506,6 +506,7 @@ If any check fails for a camera:
 ### After All Cameras Validated
 
 If **all cameras failed** → mark the session as `skipped`:
+
 ```json
 {
   "status": "skipped",
@@ -513,15 +514,17 @@ If **all cameras failed** → mark the session as `skipped`:
   "skipped_at": "2026-03-28T10:05:00"
 }
 ```
+
 Delete any remaining raw data for the session: `shutil.rmtree(f"data/raw/{session_id}")`
 
 If **at least one camera passed** → mark the session as `validated`:
+
 ```json
 {
   "status": "validated",
   "validated_at": "2026-03-28T10:05:00",
   "valid_cameras": ["camera_chest"],
-  "total_frames": {"camera_chest": 527}
+  "total_frames": { "camera_chest": 527 }
 }
 ```
 
@@ -701,13 +704,445 @@ Preprocessing complete and checks passed → status updated to `"processed"`:
 
 ## Error Handling
 
-| Scenario                                                | Action                                                                                      |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Scenario                                                | Action                                                                                                                       |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | **Validation: seg_masks directory missing or empty**    | **Log reason, delete that camera's raw data only, continue to next camera. Mark session `skipped` only if all cameras fail** |
-| **Validation: depth_maps directory missing or empty**   | **Same as above — per-camera deletion, not per-session**                                     |
-| **Validation: File count mismatch across three types**  | **Same as above — log counts, delete that camera only**                                      |
-| **Validation: Frame IDs not aligned**                   | **Same as above — log mismatched IDs, delete that camera only**                              |
-| `SANPO_data_processor` fails on a specific frame        | Log error, skip that frame, continue with others                                            |
-| Image resolution doesn't match expected (not 2208×1242) | `image_crop` raises ValueError internally; log and skip                                     |
-| Depth file corrupted                                    | `process_and_patch_sanpo_depth` raises IOError internally; log and skip                     |
-| Post-preprocessing file count doesn't match expected    | Log warning but continue (allow minor gaps)                                                 |
+| **Validation: depth_maps directory missing or empty**   | **Same as above — per-camera deletion, not per-session**                                                                     |
+| **Validation: File count mismatch across three types**  | **Same as above — log counts, delete that camera only**                                                                      |
+| **Validation: Frame IDs not aligned**                   | **Same as above — log mismatched IDs, delete that camera only**                                                              |
+| `SANPO_data_processor` fails on a specific frame        | Log error, skip that frame, continue with others                                                                             |
+| Image resolution doesn't match expected (not 2208×1242) | `image_crop` raises ValueError internally; log and skip                                                                      |
+| Depth file corrupted                                    | `process_and_patch_sanpo_depth` raises IOError internally; log and skip                                                      |
+| Post-preprocessing file count doesn't match expected    | Log warning but continue (allow minor gaps)                                                                                  |
+
+---
+
+# Phase 2-3: Pack Shards + Upload + Verify + Clean
+
+> Execution environment: Windows
+> Prerequisite: `02_phase1_decimation_preprocess.md`
+> Next step: `04_phase4_train_stream.md`
+
+---
+
+## Goal
+
+Pack preprocessed data into WebDataset shards, upload to Google Drive, verify integrity, then clean up local files. **All operations are batch-level** — a batch of sessions shares one set of shards, and cleanup occurs only after the entire batch is verified.
+
+---
+
+## Batch Lifecycle
+
+```
+data\shards\ is empty
+    ↓  Phase 2: Pack all batch sessions into shards
+data\shards\ has shard-XXX-YYYYYY.tar files
+    ↓  Phase 3a: rclone copy → Google Drive
+    ↓  Phase 3b: rclone check --one-way
+    ↓  Phase 3c: Delete raw + processed + shards
+data\shards\ is empty → ready for next batch
+```
+
+`data\shards\` must be empty before packing. If not, the pipeline aborts — previous batch cleanup is incomplete.
+
+---
+
+## Phase 2: Pack into WebDataset Shards
+
+### Input
+
+| Item              | Source                                              |
+| ----------------- | --------------------------------------------------- |
+| Preprocessed data | `data\processed\{session_id}\...\` (Phase 1 output) |
+| Progress file     | `data\pipeline_progress.json`                       |
+
+### Shard Specification
+
+| Item          | Spec                                    |
+| ------------- | --------------------------------------- |
+| Shard size    | ~1.5 GB target (`maxsize=1.5e9`)        |
+| Naming format | `shard-{batch_index:03d}-{seq:06d}.tar` |
+| Output path   | `data\shards\`                          |
+
+> Batch index prevents name collisions on Google Drive across batches.
+
+### Sample Format (inside tar)
+
+Each sample = four files sharing one `__key__`:
+
+| File              | Content                      |
+| ----------------- | ---------------------------- |
+| `{key}.png`       | RGB (640×640)                |
+| `{key}_seg.png`   | Segmentation mask (640×640)  |
+| `{key}_depth.npy` | Depth map (640×640, float16) |
+| `{key}.json`      | Metadata                     |
+
+**Key format:** `{session_id}_{camera}_{frame_index}_{patch}`
+**Example:** `abc123_chest_000000_left`
+
+### Metadata `.json` Content
+
+```json
+{
+  "session_id": "abc123",
+  "camera": "camera_chest",
+  "side": "left",
+  "frame_index": 0,
+  "patch": "left",
+  "original_filename": "000000.png",
+  "decimation_interval": 10,
+  "decimation_offset": 0
+}
+```
+
+### Packing Logic
+
+```python
+import webdataset as wds
+
+assert len(os.listdir("data/shards/")) == 0, "data/shards/ must be empty before packing"
+
+shard_pattern = f"data/shards/shard-{batch_index:03d}-%06d.tar"
+
+with wds.ShardWriter(shard_pattern, maxsize=1.5e9) as sink:
+    for session_id in batch_sessions:
+        for camera in progress["sessions"][session_id]["valid_cameras"]:
+            processed_dir = f"data/processed/{session_id}/{camera}/left"
+            camera_short = camera.replace("camera_", "")
+
+            for rgb_file in sorted(glob(f"{processed_dir}/video_frames/*_*.png")):
+                frame_index, patch = parse_filename(rgb_file)
+                key = f"{session_id}_{camera_short}_{frame_index}_{patch}"
+
+                seg_file = f"{processed_dir}/segmentation_masks/{frame_index}_{patch}.png"
+                depth_file = f"{processed_dir}/depth_maps/{frame_index}_{patch}_float16.npy"
+
+                if not (os.path.exists(seg_file) and os.path.exists(depth_file)):
+                    logger.warning(f"Missing files for {key}, skipping")
+                    continue
+
+                sample = {
+                    "__key__": key,
+                    "png": open(rgb_file, "rb").read(),
+                    "_seg.png": open(seg_file, "rb").read(),
+                    "_depth.npy": open(depth_file, "rb").read(),
+                    "json": json.dumps(metadata).encode()
+                }
+                sink.write(sample)
+```
+
+### Integrity Check
+
+1. Read each shard, confirm every sample contains `.png`, `_seg.png`, `_depth.npy`, `.json`
+2. Confirm total sample count matches sum of `patch_count` across batch sessions
+3. Record shard file list in progress for each session
+
+### Status Update
+
+All batch sessions → `"packed"`, with `shard_files` recorded
+
+---
+
+## Phase 3a: Upload
+
+```bash
+rclone copy data\shards\ gdrive:SANPO-Dataset/shards/ --transfers 4 --drive-chunk-size 128M --progress
+```
+
+Since `data\shards\` only contains the current batch (previous batch was cleaned), this uploads exactly what is needed.
+
+All batch sessions → `"uploaded"`
+
+---
+
+## Phase 3b: Verify
+
+```bash
+rclone check data\shards\ gdrive:SANPO-Dataset/shards/ --one-way
+```
+
+`--one-way`: Only checks local files exist on remote with matching checksums. Previous batches' shards on remote are ignored.
+
+- Return code 0 → pass
+- Return code non-zero → re-upload failed shards, re-verify
+
+All batch sessions → `"verified"`
+
+---
+
+## Phase 3c: Batch-Level Cleanup
+
+### Safety Prerequisites
+
+**ALL conditions must be met:**
+
+1. Every session in the batch has status `"verified"`
+2. `rclone check` passed in the current execution (not historical)
+3. Paths to delete are confirmed under `data\raw\`, `data\processed\`, or `data\shards\`
+
+### Cleanup
+
+```python
+# Per session
+for session_id in batch_sessions:
+    shutil.rmtree(f"data/raw/{session_id}", ignore_errors=True)
+    shutil.rmtree(f"data/processed/{session_id}", ignore_errors=True)
+
+# Batch shards (all at once)
+for f in glob("data/shards/shard-*.tar"):
+    os.remove(f)
+```
+
+All batch sessions → `"cleaned"`. `data\shards\` is now empty for the next batch.
+
+---
+
+## Error Handling
+
+| Scenario                                | Action                                              |
+| --------------------------------------- | --------------------------------------------------- |
+| `data\shards\` not empty before packing | Abort — previous batch cleanup incomplete           |
+| Missing file during packing             | Log warning, skip that sample, continue             |
+| `rclone copy` interrupted               | Re-run; rclone skips already-uploaded files         |
+| `rclone check` fails                    | Do NOT clean up; re-upload failed shards, re-verify |
+| Cleanup target already missing          | Ignore, continue                                    |
+
+---
+
+## Prerequisites
+
+- rclone installed, `gdrive` remote configured (OAuth authorized)
+- Python package: `webdataset`
+- Confirm `rclone check` works correctly before first run
+
+---
+
+# Phase 4: Mount Google Drive + Streaming Training
+
+> Execution environment: Ubuntu (2×P100 16GB)
+> Prerequisite: `03_phase2_3_pack_upload.md` (Phase 2-3 must be complete)
+> Standalone program: `pipeline_train_stream.py`
+
+---
+
+## Goal
+
+Mount Google Drive on the Ubuntu training machine and read shards via WebDataset streaming for training. No full dataset download required.
+
+---
+
+## Step 4a: Mount Google Drive
+
+### Mount Command
+
+```bash
+rclone mount gdrive:SANPO-Dataset/shards/ ~/gdrive/shards/ \
+  --vfs-cache-mode full \
+  --vfs-cache-max-size 50G \
+  --buffer-size 256M \
+  --daemon
+```
+
+### Parameter Explanation
+
+| Parameter              | Value  | Description                                                                            |
+| ---------------------- | ------ | -------------------------------------------------------------------------------------- |
+| `--vfs-cache-mode`     | `full` | Full caching; read shards are cached locally                                           |
+| `--vfs-cache-max-size` | `50G`  | Local cache ceiling. Exceeding this triggers LRU eviction of least recently used cache |
+| `--buffer-size`        | `256M` | Read buffer to improve sequential read performance                                     |
+| `--daemon`             | —      | Run in background, does not occupy the terminal                                        |
+
+### Cache Behavior
+
+- rclone caches previously read shards on local disk
+- Local storage usage stays near `--vfs-cache-max-size` ceiling and does not grow indefinitely
+- Training machine needs **at least 50GB free disk space** for the cache
+
+### Verify Mount Success
+
+```bash
+ls ~/gdrive/shards/
+# Should show shard-000-000000.tar, shard-001-000000.tar, ...
+```
+
+---
+
+## Step 4b: WebDataset Streaming Read
+
+### Key Settings
+
+| Item                  | Recommended Value   | Rationale                                                                                                                                         |
+| --------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Shard shuffle         | `shardshuffle=True` | Randomly reorder shard read sequence each epoch                                                                                                   |
+| Sample shuffle buffer | 2,000 samples       | ~2.3 GB RAM. Must be much larger than batch size to ensure frames in the same batch come from different sessions. Reduce to 1,000 if RAM is tight |
+| Batch size            | Start at 8 per GPU  | See estimation below                                                                                                                              |
+
+### Batch Size Estimation (2×P100 16GB)
+
+| Setting              | Estimated per-GPU batch size | Total batch size |
+| -------------------- | ---------------------------- | ---------------- |
+| FP32 (conservative)  | 8                            | 16               |
+| AMP FP16 (save VRAM) | 16                           | 32               |
+
+> P100 lacks FP16 tensor cores, so AMP speed gains are limited, but it still saves VRAM.
+> **Recommendation:** Start with `batch_size=8`, run a few iterations, observe VRAM usage via `nvidia-smi`, then gradually increase if stable.
+
+### Code Example
+
+```python
+import io
+import glob
+
+import numpy as np
+import webdataset as wds
+import torch
+from PIL import Image
+from torch.utils.data import DataLoader
+
+# --- Shard discovery (glob matches Phase 2 naming: shard-{batch}-{seq}.tar) ---
+shards = sorted(glob.glob("/home/user/gdrive/shards/shard-*.tar"))
+
+# --- Custom decoder: preserve seg mask as uint8 (decode("rgb") would convert to float) ---
+def seg_decoder(key, data):
+    """Decode _seg.png as raw uint8 numpy array, bypassing float normalization."""
+    if key.endswith("_seg.png"):
+        return np.array(Image.open(io.BytesIO(data)))  # (H, W, 3) uint8
+    return None  # fallback to default decoder for other keys
+
+# --- Dataset definition ---
+dataset = (
+    wds.WebDataset(shards, shardshuffle=True)
+    .shuffle(2000)
+    .decode(seg_decoder, "rgb")       # seg_decoder handles _seg.png; "rgb" handles .png
+    .to_tuple("png", "_seg.png", "_depth.npy", "json")
+    .batched(8)
+)
+
+# --- DataLoader ---
+loader = DataLoader(dataset, batch_size=None, num_workers=4)
+
+# --- Training loop ---
+for batch in loader:
+    rgb, seg, depth, metadata = batch
+    # rgb:   (B, H, W, 3) float32 [0, 1]  — decoded by "rgb"
+    # seg:   (B, H, W, 3) uint8           — decoded by seg_decoder, preserves label values
+    # depth: (B, H, W) float16            — loaded from .npy
+    # metadata: list of dict
+
+    # TODO: Your training logic here
+    pass
+```
+
+### Segmentation Mask Decoding
+
+The `_seg.png` is preserved as uint8 by the custom decoder. Extract semantic and instance channels:
+
+```python
+# seg shape: (B, H, W, 3) uint8 — RGB
+semantic = seg[:, :, :, 0]                          # R channel = class ID (0-30)
+instance = seg[:, :, :, 1] * 256 + seg[:, :, :, 2]  # G*256 + B = instance ID
+```
+
+### Depth Decoding
+
+```python
+# depth is loaded from .npy, already float16
+# If float32 is needed:
+depth_f32 = depth.astype(np.float32)
+```
+
+### Corrupt Sample Handling
+
+Shards may contain corrupt samples (truncated PNG, invalid .npy). Use WebDataset's error handler to skip them gracefully:
+
+```python
+def log_and_continue(exn):
+    """Log the error and skip the corrupt sample."""
+    logging.warning(f"Skipping corrupt sample: {exn}")
+    return True
+
+dataset = (
+    wds.WebDataset(shards, shardshuffle=True, handler=log_and_continue)
+    .shuffle(2000)
+    .decode(seg_decoder, "rgb", handler=log_and_continue)
+    .to_tuple("png", "_seg.png", "_depth.npy", "json", handler=log_and_continue)
+    .batched(8)
+)
+```
+
+If a specific shard has a high error rate (many corrupt samples), the shard should be considered unusable:
+
+1. Log which shard and sample keys are failing
+2. Remove the corrupt shard from Google Drive
+3. Re-download the affected sessions' raw data from GCS
+4. Re-run Phase 1-3 to repack (equivalent to discarding that camera's data and repacking)
+
+---
+
+## Step 4c: After Training
+
+### Save Checkpoints
+
+```bash
+# Option 1: Write directly to mount path (simple but slow)
+cp checkpoint.pt ~/gdrive/checkpoints/
+
+# Option 2: Upload with rclone (recommended, more stable)
+rclone copy ./checkpoints/ gdrive:SANPO-Dataset/checkpoints/ --progress
+```
+
+### Unmount
+
+```bash
+fusermount -u ~/gdrive/shards/
+```
+
+---
+
+## Important Notes
+
+### Training Speed Depends on Network Bandwidth
+
+In streaming mode, data is pulled from the cloud during training. If the network is slow:
+
+- GPU will idle while waiting for data
+- Mitigate by increasing `num_workers` to prefetch more batches
+- Ultimate bottleneck depends on rclone cache hit rate and network bandwidth
+
+### Shuffle Limitations
+
+WebDataset streaming cannot perform global shuffle. Only:
+
+1. **Shard-level shuffle**: Randomly reorder shard sequence each epoch
+2. **Buffer-level shuffle**: Randomly sample within a fixed-size buffer
+
+A buffer of 2,000 samples out of ~89,000 total covers ~2.2%. This is not perfect shuffle, but is sufficient for most training tasks.
+
+### Multi-GPU Training
+
+If using DataParallel or DistributedDataParallel:
+
+- WebDataset's `nodesplitter` can automatically distribute shards across different workers
+- DistributedDataParallel is more efficient than DataParallel for 2×P100
+
+---
+
+## Prerequisites
+
+- rclone installed, `gdrive` remote configured
+- FUSE installed (`sudo apt install fuse`)
+- Python packages: `webdataset`, `torch`, `ultralytics`, `opencv-python`, `numpy`
+- At least 50GB free disk space (rclone cache)
+
+---
+
+## Error Handling
+
+| Scenario | Action |
+|---|---|
+| Mount fails | Check rclone config, FUSE installation, Google Drive authorization |
+| Shard read timeout | Network issue; increase `--buffer-size` or check connection |
+| Single corrupt sample | `handler=log_and_continue` skips it automatically; log the key for investigation |
+| Many corrupt samples in one shard | Shard is unusable. Remove from Google Drive, re-download affected sessions from GCS, re-run Phase 1-3 to repack |
+| GPU OOM | Reduce batch size, enable AMP, enable gradient accumulation |
+| rclone disconnects during training | rclone daemon usually auto-reconnects; if persistent, re-run mount |
