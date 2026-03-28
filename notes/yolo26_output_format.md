@@ -1,32 +1,22 @@
-# Return type of `model("yolo26n-seg.pt")`: list[ultralytics.engine.results.Results]
+# Output format of YOLOv26
 
-## Attributes
+## Bbox (`results[0].boxes`)
 
-| Name       | Type            | Description                                     |
-| ---------- | --------------- | ----------------------------------------------- |
-| orig_img   | np.ndarray      | The original image as a numpy array.            |
-| orig_shape | tuple[int, int] | Original image shape in (height, width) format. |
-| **boxes**  | Boxes           | None \| Detected bounding boxes.                |
-| **masks**  | Masks           | None \| Segmentation masks.                     |
+| Attribute | Shape / Type | Description |
+| :--- | :--- | :--- |
+| `shape` | `(N, 6)` | Format: `[x1, y1, x2, y2, confidence, class]` (Tracking id included if active) |
+| `data` | `(N, 6)` | Raw tensor containing box coordinates and scores |
+| `orig_shape`| `(H, W)` | Original image dimensions |
+| `is_track` | `bool` | True if tracking is enabled |
+| `xyxy` | `(N, 4)` | Bounding box coordinates in `[x1, y1, x2, y2]` format |
+| `conf` | `(N,)` | Confidence scores for each detection |
+| `cls` | `(N,)` | Class indices for each detection |
+| `id` | `(N,)` | Track IDs (returns `None` if `is_track=False`) |
 
-## ultralytics.engine.results.Results.update.boxes
+## Instance Mask (`results[0].masks`)
 
-### Attributes
-
-| Name       | Type                       | Description                                                    |
-| ---------- | -------------------------- | -------------------------------------------------------------- |
-| data       | torch.Tensor \| np.ndarray | The raw tensor containing detection boxes and associated data. |
-| orig_shape | tuple[int, int]            | The original image dimensions (height, width).                 |
-| xyxy       | torch.Tensor \| np.ndarray | Boxes in [x1, y1, x2, y2] format.                              |
-| conf       | torch.Tensor \| np.ndarray | Confidence scores for each box.                                |
-| cls        | torch.Tensor \| np.ndarray | Class labels for each box.                                     |
-| id         | torch.Tensor \| None       | Tracking IDs for each box (if available).                      |
-
-## ultralytics.engine.results.Masks
-
-| Name       | Type                       | Description                                     |
-| ---------- | -------------------------- | ----------------------------------------------- |
-| data       | torch.Tensor \| np.ndarray | The raw tensor or array containing mask data.   |
-| orig_shape | tuple[int, int]            | Original image shape in (height, width) format. |
-| xy         | list[np.ndarray]           | A list of segments in pixel coordinates.        |
-| xyn        | list[np.ndarray]           | A list of normalized segments.                  |
+| Attribute | Shape / Type | Description |
+| :--- | :--- | :--- |
+| `data` | `(N, H, W)` | Mask tensors (usually resized to inference size, e.g., 640x480) |
+| `orig_shape`| `(H, W)` | Original image dimensions |
+| `xy` | `list(array)` | List of segments in pixel coordinates (contours) |
