@@ -5,7 +5,6 @@ import os
 from pathlib import Path
 
 from .progress import _now_iso, save_progress
-from .validate import _extract_frame_id
 
 logger = logging.getLogger(__name__)
 

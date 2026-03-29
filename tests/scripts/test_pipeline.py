@@ -3,20 +3,17 @@ Unit tests for data_pipeline package.
 Scope: Decimation logic, validation logic, error messages, CLI progress display.
 """
 
-import os
 import sys
 from pathlib import Path
-
-import pytest
 
 # Add scripts/ and src/ to path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from data_pipeline.decimate import _decimate_indices
-from data_pipeline.display import format_batch_range, format_resume_summary
-from data_pipeline.validate import _extract_frame_id, _validate_camera
+from data_pipeline.decimate import _decimate_indices  # noqa: E402
+from data_pipeline.display import format_batch_range, format_resume_summary  # noqa: E402
+from data_pipeline.validate import _extract_frame_id, _validate_camera  # noqa: E402
 
 
 # =========================================================================

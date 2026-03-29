@@ -164,15 +164,15 @@ def download_batch(progress: dict, config: dict) -> dict:
             progress["sessions"][sid]["status"] = new_status
             if new_status == "downloaded":
                 progress["sessions"][sid]["downloaded_at"] = _now_iso()
-                logger.info(f"  → downloaded")
+                logger.info("  → downloaded")
             elif new_status == "skipped":
-                logger.info(f"  → skipped (permanent)")
+                logger.info("  → skipped (permanent)")
             elif new_status == "error":
-                logger.info(f"  → error (will retry on next run)")
+                logger.info("  → error (will retry on next run)")
 
             save_progress(progress, config)
 
-        logger.info(f"Download batch complete. Proceeding to next phases.")
+        logger.info("Download batch complete. Proceeding to next phases.")
         break  # Process one batch at a time
 
     return progress

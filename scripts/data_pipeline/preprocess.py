@@ -35,7 +35,6 @@ def _preprocess_camera(
 
     processed_dir = Path(config["paths"]["processed_dir"])
     preprocess_cfg = config["preprocess"]
-    patch_positions = preprocess_cfg["patch_positions"]
     enable_image_crop = preprocess_cfg["enable_image_crop"]
     enable_depth_process = preprocess_cfg["enable_depth_process"]
 
