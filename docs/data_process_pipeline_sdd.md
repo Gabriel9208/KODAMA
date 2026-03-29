@@ -13,10 +13,11 @@
 | `02_phase1_decimation_preprocess.md` | Phase 1: Decimation + Data preprocessing                                       | Windows               |
 | `03_phase2_3_pack_upload.md`         | Phase 2-3: Pack shards + Upload + Verify + Clean                               | Windows               |
 | `04_phase4_train_stream.md`          | Phase 4: Mount Google Drive + Streaming training                               | Ubuntu P100           |
+| `05_phase5_cli_progress.md`          | Phase 5: CLI progress display                                                  | Windows               |
 
 **Program Outputs:**
 
-- Phases 0-3 → `pipeline_pack_upload.py` (Windows)
+- Phases 0-3, 5 → `pipeline_pack_upload.py` (Windows)
 - Phase 4 → `pipeline_train_stream.py` (Ubuntu P100)
 
 ---
@@ -1138,11 +1139,344 @@ If using DataParallel or DistributedDataParallel:
 
 ## Error Handling
 
-| Scenario | Action |
-|---|---|
-| Mount fails | Check rclone config, FUSE installation, Google Drive authorization |
-| Shard read timeout | Network issue; increase `--buffer-size` or check connection |
-| Single corrupt sample | `handler=log_and_continue` skips it automatically; log the key for investigation |
-| Many corrupt samples in one shard | Shard is unusable. Remove from Google Drive, re-download affected sessions from GCS, re-run Phase 1-3 to repack |
-| GPU OOM | Reduce batch size, enable AMP, enable gradient accumulation |
-| rclone disconnects during training | rclone daemon usually auto-reconnects; if persistent, re-run mount |
+| Scenario                           | Action                                                                                                          |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Mount fails                        | Check rclone config, FUSE installation, Google Drive authorization                                              |
+| Shard read timeout                 | Network issue; increase `--buffer-size` or check connection                                                     |
+| Single corrupt sample              | `handler=log_and_continue` skips it automatically; log the key for investigation                                |
+| Many corrupt samples in one shard  | Shard is unusable. Remove from Google Drive, re-download affected sessions from GCS, re-run Phase 1-3 to repack |
+| GPU OOM                            | Reduce batch size, enable AMP, enable gradient accumulation                                                     |
+| rclone disconnects during training | rclone daemon usually auto-reconnects; if persistent, re-run mount                                              |
+
+---
+
+# Phase 5: CLI Progress Display
+
+> Execution environment: Windows
+> Applies to: `pipeline_pack_upload.py`
+
+---
+
+## Goal
+
+Display structured progress information during pipeline execution so the user always knows where the pipeline is at.
+
+---
+
+## Output Format
+
+```
+Resuming pipeline: 24 / 560 sessions completed, 3 skipped
+[Batch 4] Processing sessions 28~31 / 560
+[Batch 4] Session abc123: downloading...
+[Batch 4] Session abc123: validated (camera_chest: 527 frames)
+[Batch 4] Session def456: skipped (segmentation_masks directory missing)
+[Batch 4] Session ghi789: decimating...
+[Batch 4] Session ghi789: preprocessing...
+[Batch 4] Session ghi789: processed (53 frames, 159 patches)
+...
+[Batch 4] Packing 3 sessions into shards...
+[Batch 4] Uploading shards...
+[Batch 4] Verifying shards...
+[Batch 4] Cleanup complete
+[Batch 5] Processing sessions 32~35 / 560
+...
+```
+
+---
+
+## Requirements
+
+1. **Batch header**: Show batch number and session range at the start of each batch: `[Batch N] Processing sessions X~Y / total`
+2. **Per-session status**: Show session ID and current state as it progresses through the state machine
+3. **Skip reason inline**: Sessions marked `skipped` display the reason (e.g. `skipped (depth_maps directory missing)`)
+4. **Batch-level phases**: Show packing / upload / verify / cleanup progress
+5. **Resume summary**: On startup, show how many sessions are completed and skipped before starting the next batch
+
+---
+
+## Formatting Functions
+
+### `format_batch_range(batch_index, batch_size, total_sessions) -> str`
+
+```
+batch_index=0, batch_size=4, total_sessions=560  → "1~4 / 560"
+batch_index=2, batch_size=4, total_sessions=560  → "9~12 / 560"
+batch_index=139, batch_size=4, total_sessions=560 → "557~560 / 560"  (last batch, clamped)
+```
+
+### `format_resume_summary(progress) -> str`
+
+Counts sessions by status:
+
+```
+"Resuming pipeline: 24 / 560 sessions completed, 3 skipped"
+```
+
+Where "completed" = status `cleaned`, "skipped" = status `skipped`.
+
+---
+
+## Integration
+
+These functions are called from the existing pipeline phases — no new phase execution flow. The logging calls in Phase 0-3 functions are updated to use the batch-aware format.
+
+---
+
+# Test Spec: SANPO Pipeline Unit Tests
+
+> Scope: Only test logic that, if broken, would silently corrupt training data or cause confusing failures.
+> Out of scope: Directory creation, file deletion, rclone commands, gcloud download, progress JSON I/O.
+
+---
+
+## Test File
+
+`tests/scripts/test_pipeline.py`
+
+---
+
+## 1. Decimation Sampling Logic
+
+### Test 1.1: Basic sampling with default parameters
+
+```
+Input:  frames = ["000000.png", "000001.png", ..., "000526.png"]  (527 files)
+Config: interval=10, offset=0
+Expected output indices: [0, 10, 20, 30, ..., 520]
+Expected count: 53
+```
+
+### Test 1.2: Sampling with non-zero offset
+
+```
+Input:  frames = ["000000.png", "000001.png", ..., "000526.png"]  (527 files)
+Config: interval=10, offset=3
+Expected output indices: [3, 13, 23, 33, ..., 523]
+Expected count: 53
+```
+
+### Test 1.3: Sampling with interval larger than total frames
+
+```
+Input:  frames = ["000000.png", ..., "000004.png"]  (5 files)
+Config: interval=10, offset=0
+Expected output indices: [0]
+Expected count: 1
+```
+
+### Test 1.4: Sampling with offset >= total frames
+
+```
+Input:  frames = ["000000.png", ..., "000004.png"]  (5 files)
+Config: interval=10, offset=7
+Expected output indices: []
+Expected count: 0
+→ Should handle gracefully (empty list, not crash)
+```
+
+### Test 1.5: Determinism — same input + same config = same output every time
+
+```
+Run decimation twice with identical input and config.
+Assert both runs produce identical index lists.
+```
+
+### Test 1.6: Interval=1 returns all frames (edge case)
+
+```
+Input:  frames = ["000000.png", ..., "000009.png"]  (10 files)
+Config: interval=1, offset=0
+Expected count: 10 (all frames)
+```
+
+---
+
+## 2. Three Data Types Stay Synchronized
+
+### Test 2.1: Same indices applied to all three types
+
+```
+Input:
+  video_frames/      → ["000000.png", "000001.png", ..., "000049.png"]
+  segmentation_masks/ → ["000000.png", "000001.png", ..., "000049.png"]
+  depth_maps/         → ["000000.float16.gz", "000001.float16.gz", ..., "000049.float16.gz"]
+Config: interval=10, offset=0
+
+Assert:
+  selected_frames  = ["000000.png", "000010.png", "000020.png", "000030.png", "000040.png"]
+  selected_segs    = ["000000.png", "000010.png", "000020.png", "000030.png", "000040.png"]
+  selected_depths  = ["000000.float16.gz", "000010.float16.gz", "000020.float16.gz", "000030.float16.gz", "000040.float16.gz"]
+
+  All three lists have identical numeric prefixes.
+```
+
+### Test 2.2: Filenames with different extensions still align by index
+
+```
+Input:
+  video_frames/      → ["frame_000.png", "frame_001.png", "frame_002.png"]
+  segmentation_masks/ → ["seg_000.png", "seg_001.png", "seg_002.png"]
+  depth_maps/         → ["depth_000.float16.gz", "depth_001.float16.gz", "depth_002.float16.gz"]
+Config: interval=2, offset=0
+
+Assert: selected indices are [0, 2] for all three types.
+The function uses positional index (sorted order), not filename matching.
+```
+
+---
+
+## 3. Pre-Decimation Validation Logic
+
+### Test 3.1: All three directories present, counts match → PASS
+
+```
+Input:
+  video_frames/       → 50 files
+  segmentation_masks/ → 50 files
+  depth_maps/         → 50 files
+Expected: validation passes, returns True
+```
+
+### Test 3.2: segmentation_masks directory missing → FAIL (skip)
+
+```
+Input:
+  video_frames/       → 50 files
+  segmentation_masks/ → does not exist
+  depth_maps/         → 50 files
+Expected: validation fails, returns False with reason "segmentation_masks directory missing"
+```
+
+### Test 3.3: segmentation_masks directory exists but empty → FAIL (skip)
+
+```
+Input:
+  video_frames/       → 50 files
+  segmentation_masks/ → 0 files (empty directory)
+  depth_maps/         → 50 files
+Expected: validation fails, returns False with reason "segmentation_masks directory empty"
+```
+
+### Test 3.4: depth_maps directory missing → FAIL (skip)
+
+```
+Input:
+  video_frames/       → 50 files
+  segmentation_masks/ → 50 files
+  depth_maps/         → does not exist
+Expected: validation fails, returns False with reason "depth_maps directory missing"
+```
+
+### Test 3.5: File count mismatch — seg has fewer files → FAIL (skip)
+
+```
+Input:
+  video_frames/       → 50 files
+  segmentation_masks/ → 30 files
+  depth_maps/         → 50 files
+Expected: validation fails, returns False with reason containing the actual counts
+  e.g. "File count mismatch: video_frames=50, segmentation_masks=30, depth_maps=50"
+```
+
+### Test 3.6: File count mismatch — depth has fewer files → FAIL (skip)
+
+```
+Input:
+  video_frames/       → 50 files
+  segmentation_masks/ → 50 files
+  depth_maps/         → 45 files
+Expected: validation fails, returns False with reason containing actual counts
+```
+
+### Test 3.7: Frame ID misalignment → FAIL (skip)
+
+```
+Input:
+  video_frames/       → ["000000.png", "000001.png", "000002.png"]
+  segmentation_masks/ → ["000000.png", "000001.png", "000003.png"]  ← 000003 instead of 000002
+  depth_maps/         → ["000000.float16.gz", "000001.float16.gz", "000002.float16.gz"]
+Expected: validation fails, returns False with reason "Frame ID misalignment"
+```
+
+### Test 3.8: All directories present, all counts match, all IDs align → PASS
+
+```
+Input:
+  video_frames/       → ["000000.png", "000005.png", "000010.png"]
+  segmentation_masks/ → ["000000.png", "000005.png", "000010.png"]
+  depth_maps/         → ["000000.float16.gz", "000005.float16.gz", "000010.float16.gz"]
+Expected: validation passes, returns True
+  (non-contiguous frame IDs are fine as long as all three types match)
+```
+
+---
+
+## 4. Error Messages
+
+### Test 4.1: Validation failure includes actionable detail
+
+```
+For each failing validation test (3.2 through 3.7):
+  Assert the error/log message contains:
+    - session_id
+    - which check failed
+    - actual values (e.g. file counts, mismatched IDs)
+
+  The message should be sufficient for a human to understand what went wrong
+  without looking at the source code.
+```
+
+### Test 4.2: Decimation with empty frame list produces clear message
+
+```
+Input: frames = [] (empty directory)
+Expected: does not crash. Returns empty list or logs a clear warning
+  e.g. "Session {session_id}: video_frames directory is empty, skipping"
+```
+
+### Test 4.3: Decimation config missing required fields
+
+```
+Input config: {"decimation": {"interval": 10}}  ← offset missing
+Expected: raises clear error or uses default offset=0 with a warning log
+```
+
+---
+
+## 5. CLI Progress Display (Phase 5)
+
+> Feature spec is in Phase 5 SDD above. Tests below verify the formatting functions.
+
+### Test 5.1: Progress display shows correct session range
+
+```
+Input: batch_size=8, total_sessions=560, current_batch=0
+Expected output contains: "1~8 / 560"
+
+Input: batch_size=8, total_sessions=560, current_batch=2
+Expected output contains: "17~24 / 560"
+```
+
+### Test 5.2: Last batch handles remainder correctly
+
+```
+Input: batch_size=8, total_sessions=563, current_batch=70 (last batch)
+Expected output contains: "561~563 / 563"  (not 561~568)
+```
+
+### Test 5.3: Resume message shows correct counts
+
+```
+Input: progress file has 24 "cleaned" + 3 "skipped" + 533 "pending"
+Expected output contains: "24 / 560 sessions completed, 3 skipped"
+```
+
+---
+
+## Implementation Notes
+
+- Use `pytest` with `tmp_path` fixture to create temporary directory structures for validation tests
+- Decimation tests are pure logic — no filesystem needed, just test the index calculation function
+- Validation tests need mock directories with dummy files (empty `.png` / `.float16.gz` files are fine, content doesn't matter for validation)
+- CLI progress tests can capture stdout or test the formatting function directly

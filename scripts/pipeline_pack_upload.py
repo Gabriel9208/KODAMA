@@ -19,13 +19,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-import cv2
-import webdataset as wds
 import yaml
-
-# Add src/ to path for SANPO_data_processor import
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-from utils.SANPO_data_processor import SANPO_data_processor
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -137,6 +131,25 @@ def load_session_ids() -> list[str]:
     """Read session IDs from the train split file."""
     with open(SESSION_IDS_FILE, "r", encoding="utf-8") as f:
         return [line.strip() for line in f if line.strip()]
+
+
+# ---------------------------------------------------------------------------
+# Phase 5: CLI Progress Display
+# ---------------------------------------------------------------------------
+
+def format_batch_range(batch_index: int, batch_size: int, total_sessions: int) -> str:
+    """Format batch session range string. e.g. '1~4 / 560'."""
+    start = batch_index * batch_size + 1
+    end = min((batch_index + 1) * batch_size, total_sessions)
+    return f"{start}~{end} / {total_sessions}"
+
+
+def format_resume_summary(progress: dict, total_sessions: int) -> str:
+    """Format resume summary string. e.g. 'Resuming pipeline: 24 / 560 sessions completed, 3 skipped'."""
+    sessions = progress.get("sessions", {})
+    cleaned = sum(1 for s in sessions.values() if s.get("status") == "cleaned")
+    skipped = sum(1 for s in sessions.values() if s.get("status") == "skipped")
+    return f"Resuming pipeline: {cleaned} / {total_sessions} sessions completed, {skipped} skipped"
 
 
 # ---------------------------------------------------------------------------
@@ -345,14 +358,20 @@ def _validate_camera(session_dir: Path, camera: str) -> tuple[bool, str, int]:
     depth_dir = cam_base / "depth_maps"
 
     # Check 1: All three directories exist and are non-empty
-    if not seg_dir.exists() or not any(seg_dir.iterdir()):
-        return False, f"{camera}: segmentation_masks directory missing or empty", 0
+    if not seg_dir.exists():
+        return False, f"{camera}: segmentation_masks directory missing", 0
+    if not any(seg_dir.iterdir()):
+        return False, f"{camera}: segmentation_masks directory empty", 0
 
-    if not depth_dir.exists() or not any(depth_dir.iterdir()):
-        return False, f"{camera}: depth_maps directory missing or empty", 0
+    if not depth_dir.exists():
+        return False, f"{camera}: depth_maps directory missing", 0
+    if not any(depth_dir.iterdir()):
+        return False, f"{camera}: depth_maps directory empty", 0
 
-    if not video_dir.exists() or not any(video_dir.iterdir()):
-        return False, f"{camera}: video_frames directory missing or empty", 0
+    if not video_dir.exists():
+        return False, f"{camera}: video_frames directory missing", 0
+    if not any(video_dir.iterdir()):
+        return False, f"{camera}: video_frames directory empty", 0
 
     # Check 2: File counts match
     frame_files = sorted([f for f in os.listdir(video_dir) if f.endswith(".png")])
@@ -508,7 +527,13 @@ def _preprocess_camera(
     Run SANPO_data_processor on selected frames for one camera.
 
     Returns the number of successfully processed frames.
+
+    Lazy imports: cv2, SANPO_data_processor (heavy deps, not needed for unit tests).
     """
+    import cv2
+    sys.path.insert(0, str(PROJECT_ROOT / "src"))
+    from utils.SANPO_data_processor import SANPO_data_processor
+
     cam_raw = raw_base / camera / "left"
     video_dir = cam_raw / "video_frames"
     seg_dir = cam_raw / "segmentation_masks"
@@ -728,6 +753,8 @@ def _parse_processed_filename(filename: str) -> tuple[str, str] | None:
 
 def phase2_pack(batch_sessions: list[str], progress: dict) -> dict:
     """Pack all processed sessions in the batch into WebDataset shards."""
+    import webdataset as wds
+
     # Safety: data/shards/ must be empty
     SHARDS_DIR.mkdir(parents=True, exist_ok=True)
     existing_shards = list(SHARDS_DIR.glob("shard-*.tar"))
@@ -972,12 +999,16 @@ def main():
     _validate_decimation_config(progress)
 
     all_session_ids = load_session_ids()
+    total_sessions = len(all_session_ids)
 
     # Initialize all sessions as pending if not already tracked
     for sid in all_session_ids:
         if sid not in progress["sessions"]:
             progress["sessions"][sid] = {"status": "pending"}
     save_progress(progress)
+
+    # Phase 5: Resume summary
+    logger.info(format_resume_summary(progress, total_sessions))
 
     # Main pipeline loop: batch download → Phase 1-3 → repeat
     while True:
@@ -991,6 +1022,11 @@ def main():
         if not actionable:
             logger.info("All sessions processed. Pipeline complete.")
             break
+
+        # Phase 5: Batch header
+        batch_index = _get_batch_index(progress)
+        batch_range = format_batch_range(batch_index, BATCH_SIZE, total_sessions)
+        logger.info(f"[Batch {batch_index + 1}] Processing sessions {batch_range}")
 
         # Phase 0: Download next batch
         progress = phase0_download(progress)
