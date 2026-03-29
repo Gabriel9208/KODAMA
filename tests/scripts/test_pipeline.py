@@ -1,5 +1,5 @@
 """
-Unit tests for pipeline_pack_upload.py
+Unit tests for data_pipeline package.
 Scope: Decimation logic, validation logic, error messages, CLI progress display.
 """
 
@@ -14,13 +14,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from pipeline_pack_upload import (
-    _decimate_indices,
-    _extract_frame_id,
-    _validate_camera,
-    format_batch_range,
-    format_resume_summary,
-)
+from data_pipeline.decimate import _decimate_indices
+from data_pipeline.display import format_batch_range, format_resume_summary
+from data_pipeline.validate import _extract_frame_id, _validate_camera
 
 
 # =========================================================================

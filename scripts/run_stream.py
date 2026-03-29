@@ -1,23 +1,24 @@
 """
-SANPO Dataset Streaming Training Pipeline — Phase 4
+SANPO Dataset Streaming Pipeline — Mount & Stream
 Mounts Google Drive via rclone and streams WebDataset shards for training.
 
 Execution environment: Ubuntu (2×P100 16GB)
 
 Usage:
-    # 1. Mount first (or let this script do it)
-    python scripts/pipeline_train_stream.py
+    # 1. Mount and stream (default config)
+    python scripts/run_stream.py
 
-    # 2. Unmount after training
+    # 2. With custom config
+    python scripts/run_stream.py --config configs/pipeline_config_test.yaml
+
+    # 3. Unmount after training
     fusermount -u ~/gdrive/shards/
 """
 
 import argparse
 import glob
 import io
-import json
 import logging
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -28,15 +29,10 @@ import webdataset as wds
 from PIL import Image
 from torch.utils.data import DataLoader
 
-# ---------------------------------------------------------------------------
-# Defaults
-# ---------------------------------------------------------------------------
-DEFAULT_MOUNT_POINT = Path.home() / "gdrive" / "shards"
-GDRIVE_REMOTE = "gdrive:SANPO-Dataset/shards/"
+# Ensure scripts/ is on sys.path so data_pipeline package is importable
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-DEFAULT_BATCH_SIZE = 8
-DEFAULT_SHUFFLE_BUFFER = 2000
-DEFAULT_NUM_WORKERS = 4
+from data_pipeline.config import load_pipeline_config
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -50,7 +46,7 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Step 4a: Mount Google Drive
+# Mount Google Drive
 # ---------------------------------------------------------------------------
 
 def is_mounted(mount_point: Path) -> bool:
@@ -61,7 +57,7 @@ def is_mounted(mount_point: Path) -> bool:
     return len(shards) > 0
 
 
-def mount_gdrive(mount_point: Path) -> None:
+def mount_gdrive(mount_point: Path, gdrive_remote: str) -> None:
     """Mount Google Drive shards directory via rclone."""
     if is_mounted(mount_point):
         shards = sorted(mount_point.glob("shard-*.tar"))
@@ -70,11 +66,11 @@ def mount_gdrive(mount_point: Path) -> None:
 
     mount_point.mkdir(parents=True, exist_ok=True)
 
-    logger.info(f"Mounting {GDRIVE_REMOTE} → {mount_point} ...")
+    logger.info(f"Mounting {gdrive_remote} → {mount_point} ...")
     result = subprocess.run(
         [
             "rclone", "mount",
-            GDRIVE_REMOTE,
+            gdrive_remote,
             str(mount_point),
             "--vfs-cache-mode", "full",
             "--vfs-cache-max-size", "50G",
@@ -103,7 +99,7 @@ def mount_gdrive(mount_point: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Step 4b: WebDataset streaming
+# WebDataset streaming
 # ---------------------------------------------------------------------------
 
 def log_and_continue(exn):
@@ -137,8 +133,8 @@ def decode_seg_mask(seg: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 def create_dataset(
     mount_point: Path,
-    batch_size: int = DEFAULT_BATCH_SIZE,
-    shuffle_buffer: int = DEFAULT_SHUFFLE_BUFFER,
+    batch_size: int,
+    shuffle_buffer: int,
 ) -> wds.WebDataset:
     """Create a WebDataset pipeline from mounted shards."""
     shards = sorted(glob.glob(str(mount_point / "shard-*.tar")))
@@ -161,7 +157,7 @@ def create_dataset(
 
 def create_dataloader(
     dataset: wds.WebDataset,
-    num_workers: int = DEFAULT_NUM_WORKERS,
+    num_workers: int,
 ) -> DataLoader:
     """Wrap WebDataset in a DataLoader."""
     return DataLoader(dataset, batch_size=None, num_workers=num_workers)
@@ -173,23 +169,32 @@ def create_dataloader(
 
 def train(args):
     """Main training entry point."""
-    mount_point = Path(args.mount_point)
+    config_path = Path(args.config) if args.config else None
+    config = load_pipeline_config(config_path)
+    streaming_cfg = config["streaming"]
+    gdrive_remote = config["remote"]["gdrive_remote"]
 
-    # Step 4a: Mount
-    mount_gdrive(mount_point)
+    # Resolve mount point (CLI override > config)
+    mount_point = Path(args.mount_point) if args.mount_point else Path(streaming_cfg["mount_point"]).expanduser()
+    batch_size = args.batch_size or streaming_cfg["batch_size"]
+    shuffle_buffer = args.shuffle_buffer or streaming_cfg["shuffle_buffer"]
+    num_workers = args.num_workers or streaming_cfg["num_workers"]
 
-    # Step 4b: Create dataset
+    # Mount
+    mount_gdrive(mount_point, gdrive_remote)
+
+    # Create dataset
     dataset = create_dataset(
         mount_point=mount_point,
-        batch_size=args.batch_size,
-        shuffle_buffer=args.shuffle_buffer,
+        batch_size=batch_size,
+        shuffle_buffer=shuffle_buffer,
     )
-    loader = create_dataloader(dataset, num_workers=args.num_workers)
+    loader = create_dataloader(dataset, num_workers=num_workers)
 
     # Training loop skeleton
     logger.info(
-        f"Starting training — batch_size={args.batch_size}, "
-        f"shuffle_buffer={args.shuffle_buffer}, num_workers={args.num_workers}"
+        f"Starting training — batch_size={batch_size}, "
+        f"shuffle_buffer={shuffle_buffer}, num_workers={num_workers}"
     )
 
     for epoch in range(args.epochs):
@@ -203,11 +208,11 @@ def train(args):
             # depth: list of (H, W) float16             — loaded from .npy
             # metadata: list of dict
 
-            batch_size = len(rgb)
-            sample_count += batch_size
+            current_batch_size = len(rgb)
+            sample_count += current_batch_size
 
             # --- Decode segmentation masks ---
-            # for i in range(batch_size):
+            # for i in range(current_batch_size):
             #     semantic, instance = decode_seg_mask(seg[i])
 
             # --- TODO: Your training logic here ---
@@ -232,31 +237,37 @@ def train(args):
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="SANPO streaming training pipeline (Phase 4)"
+        description="SANPO dataset streaming pipeline"
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="Path to pipeline config YAML (default: configs/pipeline_config.yaml)",
     )
     parser.add_argument(
         "--mount-point",
         type=str,
-        default=str(DEFAULT_MOUNT_POINT),
-        help=f"rclone mount path (default: {DEFAULT_MOUNT_POINT})",
+        default=None,
+        help="rclone mount path (overrides config)",
     )
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=DEFAULT_BATCH_SIZE,
-        help=f"Per-GPU batch size (default: {DEFAULT_BATCH_SIZE})",
+        default=None,
+        help="Per-GPU batch size (overrides config)",
     )
     parser.add_argument(
         "--shuffle-buffer",
         type=int,
-        default=DEFAULT_SHUFFLE_BUFFER,
-        help=f"Shuffle buffer size (default: {DEFAULT_SHUFFLE_BUFFER})",
+        default=None,
+        help="Shuffle buffer size (overrides config)",
     )
     parser.add_argument(
         "--num-workers",
         type=int,
-        default=DEFAULT_NUM_WORKERS,
-        help=f"DataLoader workers (default: {DEFAULT_NUM_WORKERS})",
+        default=None,
+        help="DataLoader workers (overrides config)",
     )
     parser.add_argument(
         "--epochs",

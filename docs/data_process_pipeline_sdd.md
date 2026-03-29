@@ -14,11 +14,12 @@
 | `03_phase2_3_pack_upload.md`         | Phase 2-3: Pack shards + Upload + Verify + Clean                               | Windows               |
 | `04_phase4_train_stream.md`          | Phase 4: Mount Google Drive + Streaming training                               | Ubuntu P100           |
 | `05_phase5_cli_progress.md`          | Phase 5: CLI progress display                                                  | Windows               |
+| `06_phase6_refactoring.md`           | Phase 6: Modular refactoring + config externalization + rename                 | —                     |
 
 **Program Outputs:**
 
-- Phases 0-3, 5 → `pipeline_pack_upload.py` (Windows)
-- Phase 4 → `pipeline_train_stream.py` (Ubuntu P100)
+- Phases 0-3, 5 → `scripts/data_pipeline/` package + `run_pipeline.py` entry point (Windows)
+- Phase 4 → `scripts/run_stream.py` (Ubuntu P100 / Windows)
 
 ---
 
