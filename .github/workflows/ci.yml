@@ -2,9 +2,9 @@ name: KODAMA MLOps Pipeline
 
 on:
   push:
-    branches: [ "dev" ]
+    branches: ["dev"]
   pull_request:
-    branches: [ "dev" ]
+    branches: ["dev"]
 
 env:
   PYTHONUNBUFFERED: 1
@@ -12,32 +12,32 @@ env:
 
 jobs:
   static-analysis-and-test:
-    runs-on: ubuntu-latest 
+    runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout Code
-      uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-    - name: Set up Python 3.11
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.11"
-        cache: 'pip' # accerlerate future CI time
-        cache-dependency-path: .github/workflows/requirements.txt
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip" # accerlerate future CI time
+          cache-dependency-path: .github/workflows/requirements.txt
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        # 1. Install CPU-only PyTorch explicitly (lightweight, no CUDA)
-        pip install torch==2.2.0 torchvision==0.17.0 --index-url https://download.pytorch.org/whl/cpu
-        # 2. Filter out torch/torchvision from requirements to prevent overwriting with CUDA versions
-        sed -E '/^torch/d' .github/workflows/requirements.txt > requirements_ci.txt
-        pip install -r requirements_ci.txt ruff
-        
-    - name: Linting with Ruff
-      run: |
-        ruff check .
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # 1. Install CPU-only PyTorch explicitly (lightweight, no CUDA)
+          pip install torch==2.2.0 torchvision==0.17.0 --index-url https://download.pytorch.org/whl/cpu
+          # 2. Filter out torch/torchvision from requirements to prevent overwriting with CUDA versions
+          sed -E '/^torch/d' .github/workflows/requirements.txt > requirements_ci.txt
+          pip install -r requirements_ci.txt ruff
 
-    - name: Execute Tensor Shape and Unit Tests (Pytest)
-      run: |
-        pytest tests/ || echo "目前尚無測試案例，跳過 Pytest 檢查"
+      - name: Linting with Ruff
+        run: |
+          ruff check .
+
+      - name: Execute Tensor Shape and Unit Tests (Pytest)
+        run: |
+          pytest tests/ || echo "No test cases yet, skipping Pytest check"

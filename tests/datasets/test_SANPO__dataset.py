@@ -3,7 +3,7 @@ import torch
 
 def test_SANPO__dataset():
 
-    data_dir = r"C:\Users\yen08\Desktop\KODAMA\data\processed\-5OCPnbrwJdu3jH70ieU7pUiFsOJQoeG\camera_chest\left"
+    data_dir = "data/processed/-5OCPnbrwJdu3jH70ieU7pUiFsOJQoeG/camera_chest/left"
 
     dataset = SANPO__dataset(data_dir=data_dir)
 

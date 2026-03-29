@@ -3,7 +3,7 @@ torch==2.2.0
 torchvision==0.17.0
 
 # Computer Vision & Numerical Operations
-numpy>=1.24.0
+numpy>=1.24.0,<2.0.0
 opencv-python>=4.8.0
 pillow>=10.0.0
 scipy
