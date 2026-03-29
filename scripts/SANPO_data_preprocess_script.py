@@ -1,6 +1,6 @@
 import os
 import cv2
-from SANPO_data_processor import SANPO_data_processor
+from src.utils.SANPO_data_processor import SANPO_data_processor
 
 def process_directory(input_base_dir, output_base_dir):
     """Processes a single directory."""

@@ -1,0 +1,47 @@
+# =========================================================================
+# Pipeline Configuration
+# =========================================================================
+
+# --- Paths (relative to project root) ---
+paths:
+  data_dir: "data"
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  shards_dir: "data/shards"
+  progress_file: "data/pipeline_progress.json"
+  session_ids_file: "data/sanpo_dataset_v0_sanpo-real_splits_train_session_ids.txt"
+  decimation_config_file: "configs/decimation_config.yaml"
+
+# --- Remote Storage ---
+remote:
+  gcs_bucket: "gs://gresearch/sanpo_dataset/v0/sanpo-real"
+  gdrive_remote: "gdrive:SANPO-Dataset/shards/"
+
+# --- Download ---
+download:
+  batch_size: 4
+  disk_safety_factor: 1.5
+  estimated_session_size_gb: 8
+
+# --- Preprocessing ---
+preprocess:
+  cameras: ["camera_chest", "camera_head"]
+  patch_positions: ["left", "center", "right"]
+  enable_image_crop: true
+  enable_depth_process: true
+
+# --- Packing ---
+packing:
+  shard_max_size: 1.5e9  # bytes, ~1.5 GB per shard
+
+# --- Upload ---
+upload:
+  rclone_transfers: 4
+  rclone_chunk_size: "128M"
+
+# --- Streaming ---
+streaming:
+  mount_point: "~/gdrive/shards"
+  batch_size: 8
+  shuffle_buffer: 2000
+  num_workers: 4
