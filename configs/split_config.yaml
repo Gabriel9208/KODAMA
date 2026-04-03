@@ -1,5 +1,6 @@
 split:
-  train: 0.8
-  val: 0.2
+  train_portion: 0.85
+  val_portion: 0.15
   train_shards: []
   val_shards: []
+  seed: 42
