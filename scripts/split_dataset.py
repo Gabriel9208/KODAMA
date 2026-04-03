@@ -18,21 +18,34 @@ def split_dataset(config: dict, seed: int) -> None:
         print("No configs/split_config.yaml file found.")
         return
 
-    shards = [
-        v["shard_files"][0] 
-        for k, v in progress["sessions"].items() if v["status"] == "cleaned"
+    sessions = [
+        sid 
+        for sid, v in progress["sessions"].items() if v["status"] == "cleaned"
     ]
     
-    shards = list(set(shards))
-
-    train_shards, val_shards = train_test_split(
-        shards, 
+    train_sessions, val_sessions = train_test_split(
+        sessions, 
         test_size=split_config["split"]["val_portion"],
         random_state=split_config["split"]["seed"]
     )
 
-    split_config["split"]["train_shards"] = train_shards
-    split_config["split"]["val_shards"] = val_shards
+    train_shards = set([
+        shard_files
+        for sid in train_sessions
+        for shard_files in progress["sessions"][sid]["shard_files"]
+    ])
+
+    val_shards = set([
+        shard_files
+        for sid in val_sessions
+        for shard_files in progress["sessions"][sid]["shard_files"]
+    ])
+
+    val_shards_clean = val_shards - train_shards
+     
+
+    split_config["split"]["train_shards"] = list(train_shards)
+    split_config["split"]["val_shards"] = list(val_shards_clean)
 
     with open('configs/split_config.yaml', 'w') as f:
         yaml.dump(split_config, f)
