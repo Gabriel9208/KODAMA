@@ -45,7 +45,7 @@ def process_directory(input_base_dir, output_base_dir):
                     print(f"Error processing {file_path}: {e}")
 
 def preprocess_sanpo_data_generalized():
-    data_root = r"C:\Users\yen08\Desktop\KODAMA\data"
+    data_root = "data"
     processed_root = os.path.join(data_root, "processed")
 
     for item in os.listdir(data_root):
@@ -64,4 +64,3 @@ def preprocess_sanpo_data_generalized():
 if __name__ == "__main__":
     preprocess_sanpo_data_generalized()
 
-## TODO: Pick one frame every 10 frames

@@ -1,0 +1,39 @@
+# -------------------------------------------------------
+# SANPO panoptic → type name
+# -------------------------------------------------------
+sanpo_panoptic_to_yolo_id:
+  0: crosswalk
+  1: opening-door
+  2: opening-gate
+  3: pedestrian
+  4: rider
+  5: animal
+  6: stairs
+  7: obstacle
+  8: vehicle
+  9: traffic sign
+  10: traffic light
+  11: pole
+  12: bus stop
+  13: bike rack
+  14: tree
+
+# -------------------------------------------------------
+# SANPO panoptic → New YOLO ID
+# -------------------------------------------------------
+sanpo_to_yolo:
+  5: 0
+  10: 1
+  11: 2
+  12: 3
+  13: 4
+  14: 5
+  15: 6
+  20: 7
+  21: 8
+  22: 9
+  23: 10
+  24: 11
+  25: 12
+  26: 13
+  28: 14

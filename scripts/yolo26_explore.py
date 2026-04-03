@@ -1,5 +1,10 @@
 from ultralytics import YOLO
 
+def hook_fn(name):
+    def hook(model, input, output):
+        feature[name] = output
+    return hook
+
 model = YOLO("model/yolo26n-seg.pt")
 
 result = model.predict("https://ultralytics.com/images/bus.jpg", save=True)
@@ -19,3 +24,7 @@ print("id: " + str(result[0].boxes.id if result[0].boxes is not None else "None"
 print("\n=== Instance Mask ===")
 print("data: " + str(result[0].masks.data.shape )) # (num_masks, height, width)
 print("orig_shape: " + str(result[0].masks.orig_shape )) # (height, width)
+
+print(model.model.yaml)
+#print(model.model.model[-1])
+feature = {}

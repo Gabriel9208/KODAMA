@@ -49,7 +49,7 @@ def split_dataset() -> None:
     conflict_shards = val_shards - val_shards_clean
     if conflict_shards:
         print(f"{len(conflict_shards)} shards contain both train and val sessions.")
-        print(f"   These shards are assigned to train. Val samples inside are excluded.")
+        print("   These shards are assigned to train. Val samples inside are excluded.")
         print(f"   Conflict shards: {conflict_shards}")
         print(f"   Remain portion of validation shards: {len(val_shards_clean) / len(sessions):.3f}")
 
