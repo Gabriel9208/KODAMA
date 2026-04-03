@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 from pathlib import Path
+from typing import Callable
 
 from .progress import _now_iso, save_progress
 
@@ -19,6 +20,14 @@ def _extract_frame_id(filename: str) -> str:
     return filename
 
 
+def _list_local_files(dir_path: str) -> list[str]:
+    """List filenames in a local directory. Returns [] if missing or empty."""
+    p = Path(dir_path)
+    if not p.exists() or not any(p.iterdir()):
+        return []
+    return sorted(os.listdir(p))
+
+
 def _discover_cameras(session_dir: Path, config: dict) -> list[str]:
     """Find which cameras exist in a raw session directory."""
     cameras = config["preprocess"]["cameras"]
@@ -30,39 +39,46 @@ def _discover_cameras(session_dir: Path, config: dict) -> list[str]:
     return found
 
 
-def _validate_camera(session_dir: Path, camera: str) -> tuple[bool, str, int]:
+def _validate_camera(
+    camera: str,
+    list_files_fn: Callable[[str], list[str]],
+    video_path: str,
+    seg_path: str,
+    depth_path: str,
+) -> tuple[bool, str, int]:
     """
     Validate a single camera's data integrity.
+
+    Args:
+        camera: Camera name (e.g. "camera_chest").
+        list_files_fn: Callable that takes a path string and returns sorted
+            filenames, or [] if the path doesn't exist / is empty.
+        video_path: Path (local or GCS) to video_frames directory.
+        seg_path: Path (local or GCS) to segmentation_masks directory.
+        depth_path: Path (local or GCS) to depth_maps directory.
 
     Returns (passed, reason, frame_count).
     If passed is False, reason describes the failure.
     """
-    cam_base = session_dir / camera / "left"
-    video_dir = cam_base / "video_frames"
-    seg_dir = cam_base / "segmentation_masks"
-    depth_dir = cam_base / "depth_maps"
-
     # Check 1: All three directories exist and are non-empty
-    if not seg_dir.exists():
-        return False, f"{camera}: segmentation_masks directory missing", 0
-    if not any(seg_dir.iterdir()):
-        return False, f"{camera}: segmentation_masks directory empty", 0
+    seg_files = list_files_fn(seg_path)
+    if not seg_files:
+        return False, f"{camera}: segmentation_masks directory missing or empty", 0
 
-    if not depth_dir.exists():
-        return False, f"{camera}: depth_maps directory missing", 0
-    if not any(depth_dir.iterdir()):
-        return False, f"{camera}: depth_maps directory empty", 0
+    depth_files = list_files_fn(depth_path)
+    if not depth_files:
+        return False, f"{camera}: depth_maps directory missing or empty", 0
 
-    if not video_dir.exists():
-        return False, f"{camera}: video_frames directory missing", 0
-    if not any(video_dir.iterdir()):
-        return False, f"{camera}: video_frames directory empty", 0
+    frame_files = list_files_fn(video_path)
+    if not frame_files:
+        return False, f"{camera}: video_frames directory missing or empty", 0
+
+    # Filter by expected extensions
+    frame_files = sorted(f for f in frame_files if f.endswith(".png"))
+    seg_files = sorted(f for f in seg_files if f.endswith(".png"))
+    depth_files = sorted(f for f in depth_files if f.endswith(".float16.gz"))
 
     # Check 2: File counts match
-    frame_files = sorted([f for f in os.listdir(video_dir) if f.endswith(".png")])
-    seg_files = sorted([f for f in os.listdir(seg_dir) if f.endswith(".png")])
-    depth_files = sorted([f for f in os.listdir(depth_dir) if f.endswith(".float16.gz")])
-
     if not (len(frame_files) == len(seg_files) == len(depth_files)):
         return (
             False,
@@ -106,7 +122,14 @@ def validate_session(session_id: str, progress: dict, config: dict) -> dict:
     fail_reasons = []
 
     for camera in cameras:
-        passed, reason, frame_count = _validate_camera(session_dir, camera)
+        cam_base = str(session_dir / camera / "left")
+        passed, reason, frame_count = _validate_camera(
+            camera,
+            _list_local_files,
+            f"{cam_base}/video_frames",
+            f"{cam_base}/segmentation_masks",
+            f"{cam_base}/depth_maps",
+        )
         if passed:
             valid_cameras.append(camera)
             total_frames[camera] = frame_count

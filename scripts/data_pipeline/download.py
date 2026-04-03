@@ -21,6 +21,7 @@ def _gcloud_ls(gcs_path: str) -> bool:
         ["gcloud", "storage", "ls", gcs_path],
         capture_output=True,
         text=True,
+        shell=True
     )
     return result.returncode == 0
 
@@ -32,6 +33,7 @@ def _gcloud_cp(gcs_src: str, local_dst: Path) -> bool:
         ["gcloud", "storage", "cp", "-r", gcs_src, str(local_dst)],
         capture_output=True,
         text=True,
+        shell=True
     )
     if result.returncode != 0:
         logger.error(f"gcloud cp failed: {result.stderr.strip()}")
@@ -113,13 +115,38 @@ def download_session(session_id: str, progress: dict, config: dict) -> str:
     return "downloaded"
 
 
+_IN_FLIGHT_STATUSES = (
+    "downloaded", "validated", "decimated", "processed",
+    "packed", "uploaded", "verified",
+)
+
+
 def download_batch(progress: dict, config: dict) -> dict:
-    """Execute download for one batch of sessions."""
+    """Execute download for one batch of sessions.
+
+    Respects batch_size strictly: counts sessions already in-flight
+    (downloaded through verified) and only downloads enough to fill
+    the remaining slots. If the batch is already full, downloads nothing.
+    """
     all_session_ids = load_session_ids(config)
     batch_size = config["download"]["batch_size"]
     disk_safety_factor = config["download"]["disk_safety_factor"]
     estimated_session_size_gb = config["download"]["estimated_session_size_gb"]
     data_dir = Path(config["paths"]["data_dir"])
+
+    # Count sessions already in-flight (downloaded but not yet cleaned)
+    in_flight = [
+        sid for sid in all_session_ids
+        if progress["sessions"].get(sid, {}).get("status") in _IN_FLIGHT_STATUSES
+    ]
+    slots_available = batch_size - len(in_flight)
+
+    if slots_available <= 0:
+        logger.info(
+            f"Download: {len(in_flight)} sessions already in-flight "
+            f"(batch_size={batch_size}). Skipping download."
+        )
+        return progress
 
     # Filter to sessions that need downloading
     pending = []
@@ -133,46 +160,43 @@ def download_batch(progress: dict, config: dict) -> dict:
         logger.info("Download: No sessions to download.")
         return progress
 
-    logger.info(f"Download: {len(pending)} sessions to download ({len(all_session_ids)} total)")
+    # Only download enough to fill remaining slots
+    batch = pending[:slots_available]
 
-    for batch_start in range(0, len(pending), batch_size):
-        batch = pending[batch_start : batch_start + batch_size]
+    logger.info(
+        f"Download: {len(in_flight)} in-flight, "
+        f"{slots_available} slots available, "
+        f"downloading {len(batch)} sessions"
+    )
 
-        # Disk space check
-        available_gb = _available_disk_gb(data_dir)
-        required_gb = len(batch) * estimated_session_size_gb * disk_safety_factor
-        if available_gb < required_gb:
-            logger.warning(
-                f"Insufficient disk space: {available_gb:.1f} GB available, "
-                f"{required_gb:.1f} GB required for {len(batch)} sessions. "
-                "Pausing. Free space or wait for previous batch to upload, then re-run."
-            )
-            break
-
-        logger.info(
-            f"Download batch: downloading {len(batch)} sessions "
-            f"(available: {available_gb:.1f} GB, est. required: {required_gb:.1f} GB)"
+    # Disk space check
+    available_gb = _available_disk_gb(data_dir)
+    required_gb = len(batch) * estimated_session_size_gb * disk_safety_factor
+    if available_gb < required_gb:
+        logger.warning(
+            f"Insufficient disk space: {available_gb:.1f} GB available, "
+            f"{required_gb:.1f} GB required for {len(batch)} sessions. "
+            "Pausing. Free space or wait for previous batch to upload, then re-run."
         )
+        return progress
 
-        for sid in batch:
-            logger.info(f"Processing session: {sid}")
-            new_status = download_session(sid, progress, config)
+    for sid in batch:
+        logger.info(f"Processing session: {sid}")
+        new_status = download_session(sid, progress, config)
 
-            if sid not in progress["sessions"]:
-                progress["sessions"][sid] = {}
+        if sid not in progress["sessions"]:
+            progress["sessions"][sid] = {}
 
-            progress["sessions"][sid]["status"] = new_status
-            if new_status == "downloaded":
-                progress["sessions"][sid]["downloaded_at"] = _now_iso()
-                logger.info("  → downloaded")
-            elif new_status == "skipped":
-                logger.info("  → skipped (permanent)")
-            elif new_status == "error":
-                logger.info("  → error (will retry on next run)")
+        progress["sessions"][sid]["status"] = new_status
+        if new_status == "downloaded":
+            progress["sessions"][sid]["downloaded_at"] = _now_iso()
+            logger.info("  → downloaded")
+        elif new_status == "skipped":
+            logger.info("  → skipped (permanent)")
+        elif new_status == "error":
+            logger.info("  → error (will retry on next run)")
 
-            save_progress(progress, config)
+        save_progress(progress, config)
 
-        logger.info("Download batch complete. Proceeding to next phases.")
-        break  # Process one batch at a time
-
+    logger.info("Download batch complete. Proceeding to next phases.")
     return progress

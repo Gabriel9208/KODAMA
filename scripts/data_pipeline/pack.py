@@ -39,7 +39,7 @@ def pack_shards(batch_sessions: list[str], progress: dict, config: dict) -> dict
 
     shards_dir = Path(config["paths"]["shards_dir"])
     processed_dir = Path(config["paths"]["processed_dir"])
-    shard_max_size = config["packing"]["shard_max_size"]
+    shard_max_size = int(float(config["packing"]["shard_max_size"]))
 
     # Safety: data/shards/ must be empty
     shards_dir.mkdir(parents=True, exist_ok=True)
@@ -52,7 +52,7 @@ def pack_shards(batch_sessions: list[str], progress: dict, config: dict) -> dict
         return progress
 
     batch_index = _get_batch_index(progress)
-    shard_pattern = str(shards_dir / f"shard-{batch_index:03d}-%06d.tar")
+    shard_pattern = os.path.relpath(shards_dir / f"shard-{batch_index:03d}-%06d.tar")
     decimation_config = progress["decimation_config"]
 
     total_samples = 0
@@ -101,22 +101,22 @@ def pack_shards(batch_sessions: list[str], progress: dict, config: dict) -> dict
                         continue
 
                     metadata = {
-                        "session_id": sid,
-                        "camera": camera,
+                        "session_id": str(sid),              
+                        "camera": str(camera),                
                         "side": "left",
-                        "frame_index": int(frame_index),
-                        "patch": patch,
+                        "frame_index": str(int(frame_index)),
+                        "patch": str(patch),                  
                         "original_filename": f"{frame_index}.png",
-                        "decimation_interval": decimation_config["interval"],
-                        "decimation_offset": decimation_config["offset"],
+                        "decimation_interval": str(decimation_config["interval"]),
+                        "decimation_offset": str(decimation_config["offset"]),
                     }
 
                     sample = {
                         "__key__": key,
                         "png": open(video_dir / rgb_filename, "rb").read(),
-                        "_seg.png": open(seg_file, "rb").read(),
-                        "_depth.npy": open(depth_file, "rb").read(),
-                        "json": json.dumps(metadata).encode("utf-8"),
+                        "seg.png": open(seg_file, "rb").read(),
+                        "depth.npy": open(depth_file, "rb").read(),
+                        "json": json.dumps(metadata),
                     }
                     sink.write(sample)
                     total_samples += 1

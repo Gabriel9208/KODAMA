@@ -13,7 +13,11 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from data_pipeline.decimate import _decimate_indices  # noqa: E402
 from data_pipeline.display import format_batch_range, format_resume_summary  # noqa: E402
-from data_pipeline.validate import _extract_frame_id, _validate_camera  # noqa: E402
+from data_pipeline.validate import (  # noqa: E402
+    _extract_frame_id,
+    _list_local_files,
+    _validate_camera,
+)
 
 
 # =========================================================================
@@ -154,6 +158,18 @@ def _create_camera_dir(
 # =========================================================================
 
 
+def _call_validate(base, camera):
+    """Helper: call _validate_camera with local listing for a mock directory."""
+    cam_base = str(base / camera / "left")
+    return _validate_camera(
+        camera,
+        _list_local_files,
+        f"{cam_base}/video_frames",
+        f"{cam_base}/segmentation_masks",
+        f"{cam_base}/depth_maps",
+    )
+
+
 class TestValidation:
     """Test _validate_camera with mock directory structures."""
 
@@ -164,7 +180,7 @@ class TestValidation:
         """50 files in each dir → PASS."""
         ids = self._ids(50)
         _create_camera_dir(tmp_path, "camera_chest", frame_ids=ids, seg_ids=ids, depth_ids=ids)
-        passed, reason, count = _validate_camera(tmp_path, "camera_chest")
+        passed, reason, count = _call_validate(tmp_path, "camera_chest")
         assert passed is True
         assert count == 50
 
@@ -172,7 +188,7 @@ class TestValidation:
         """segmentation_masks dir does not exist → FAIL with 'missing'."""
         ids = self._ids(50)
         _create_camera_dir(tmp_path, "camera_chest", frame_ids=ids, seg_ids=ids, depth_ids=ids, skip_seg_dir=True)
-        passed, reason, count = _validate_camera(tmp_path, "camera_chest")
+        passed, reason, count = _call_validate(tmp_path, "camera_chest")
         assert passed is False
         assert "segmentation_masks" in reason
         assert "missing" in reason
@@ -181,7 +197,7 @@ class TestValidation:
         """segmentation_masks dir exists but empty → FAIL with 'empty'."""
         ids = self._ids(50)
         _create_camera_dir(tmp_path, "camera_chest", frame_ids=ids, seg_ids=ids, depth_ids=ids, empty_seg_dir=True)
-        passed, reason, count = _validate_camera(tmp_path, "camera_chest")
+        passed, reason, count = _call_validate(tmp_path, "camera_chest")
         assert passed is False
         assert "segmentation_masks" in reason
         assert "empty" in reason
@@ -190,7 +206,7 @@ class TestValidation:
         """depth_maps dir does not exist → FAIL with 'missing'."""
         ids = self._ids(50)
         _create_camera_dir(tmp_path, "camera_chest", frame_ids=ids, seg_ids=ids, depth_ids=ids, skip_depth_dir=True)
-        passed, reason, count = _validate_camera(tmp_path, "camera_chest")
+        passed, reason, count = _call_validate(tmp_path, "camera_chest")
         assert passed is False
         assert "depth_maps" in reason
         assert "missing" in reason
@@ -200,7 +216,7 @@ class TestValidation:
         ids_50 = self._ids(50)
         ids_30 = self._ids(30)
         _create_camera_dir(tmp_path, "camera_chest", frame_ids=ids_50, seg_ids=ids_30, depth_ids=ids_50)
-        passed, reason, count = _validate_camera(tmp_path, "camera_chest")
+        passed, reason, count = _call_validate(tmp_path, "camera_chest")
         assert passed is False
         assert "file count mismatch" in reason
         assert "50" in reason
@@ -211,7 +227,7 @@ class TestValidation:
         ids_50 = self._ids(50)
         ids_45 = self._ids(45)
         _create_camera_dir(tmp_path, "camera_chest", frame_ids=ids_50, seg_ids=ids_50, depth_ids=ids_45)
-        passed, reason, count = _validate_camera(tmp_path, "camera_chest")
+        passed, reason, count = _call_validate(tmp_path, "camera_chest")
         assert passed is False
         assert "file count mismatch" in reason
         assert "50" in reason
@@ -223,7 +239,7 @@ class TestValidation:
         seg_ids = ["000000", "000001", "000003"]
         depth_ids = ["000000", "000001", "000002"]
         _create_camera_dir(tmp_path, "camera_chest", frame_ids=frame_ids, seg_ids=seg_ids, depth_ids=depth_ids)
-        passed, reason, count = _validate_camera(tmp_path, "camera_chest")
+        passed, reason, count = _call_validate(tmp_path, "camera_chest")
         assert passed is False
         assert "not aligned" in reason
 
@@ -231,7 +247,7 @@ class TestValidation:
         """Non-contiguous IDs (000000, 000005, 000010) all match → PASS."""
         ids = ["000000", "000005", "000010"]
         _create_camera_dir(tmp_path, "camera_chest", frame_ids=ids, seg_ids=ids, depth_ids=ids)
-        passed, reason, count = _validate_camera(tmp_path, "camera_chest")
+        passed, reason, count = _call_validate(tmp_path, "camera_chest")
         assert passed is True
         assert count == 3
 
@@ -252,12 +268,12 @@ class TestErrorMessages:
         ids = self._ids(50)
         # seg missing
         _create_camera_dir(tmp_path / "a", "camera_chest", frame_ids=ids, seg_ids=ids, depth_ids=ids, skip_seg_dir=True)
-        _, reason, _ = _validate_camera(tmp_path / "a", "camera_chest")
+        _, reason, _ = _call_validate(tmp_path / "a", "camera_chest")
         assert "camera_chest" in reason
 
         # depth missing
         _create_camera_dir(tmp_path / "b", "camera_head", frame_ids=ids, seg_ids=ids, depth_ids=ids, skip_depth_dir=True)
-        _, reason, _ = _validate_camera(tmp_path / "b", "camera_head")
+        _, reason, _ = _call_validate(tmp_path / "b", "camera_head")
         assert "camera_head" in reason
 
     def test_4_2_decimation_empty_frames(self):

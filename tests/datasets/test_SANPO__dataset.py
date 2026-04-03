@@ -28,5 +28,6 @@ def test_SANPO__dataset():
     assert not torch.isnan(depth).any(), "Depth should not contain NaN"
 
     assert dataset[0][0].min() >= 0 and dataset[0][0].max() <= 255, "RGB values should be in range [0, 255]"
-    assert dataset[0][1].min() >= 0 and dataset[0][1].max() <= 65535, "Seg values should be in range [0, 65535]"
+    assert dataset[0][1].min() >= 0 and dataset[0][1][0].max() <= 30, "Seg values should be in range [0, 65535]"
+    assert dataset[0][1].min() >= 0 and dataset[0][1][1].max() <= 65535, "Seg values should be in range [0, 65535]"
     assert dataset[0][2].min() >= 0, "Depth values should be >= 0"

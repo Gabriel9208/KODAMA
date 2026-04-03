@@ -20,9 +20,15 @@ def upload_shards(batch_sessions: list[str], progress: dict, config: dict) -> di
 
     logger.info("Uploading shards to Google Drive ...")
 
+    rclone_bin = shutil.which("rclone")
+    if rclone_bin is None:
+        raise FileNotFoundError(
+            "rclone not found on PATH. Install it or add its directory to PATH."
+        )
+
     result = subprocess.run(
         [
-            "rclone", "copy",
+            rclone_bin, "copy",
             str(shards_dir),
             gdrive_remote,
             "--transfers", transfers,
