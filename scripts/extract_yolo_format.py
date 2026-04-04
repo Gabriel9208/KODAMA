@@ -19,7 +19,7 @@ for k, v in sanpo_to_yolo.items():
     lookup_table[k] = v
 
 ################################################
-#               Pixel to Polygin               #
+#               Pixel to Polygon               #
 ################################################
 def instance_isolation(mask: np.ndarray) -> Dict[Tuple[int, int], np.ndarray]:
     """
@@ -111,11 +111,6 @@ def extract_yolo_format(mask: np.ndarray, output_path: str):
     mask = sanpo_to_yolo_label(mask)
     pixel_to_polygon(mask, output_path)
       
-
-################################################
-#             class imbalance check            #
-################################################
-    
 
 if __name__ == "__main__":
     shard_dir = "data/shards"

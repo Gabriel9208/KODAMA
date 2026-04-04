@@ -1,0 +1,37 @@
+Codemap Generation Report — 2026-04-04
+======================================
+
+STATUS: Initial generation (no previous codemaps found)
+
+Files scanned: 23 Python files across scripts/, src/, model/
+Total lines:   ~2190
+
+Architecture
+------------
+- Single-repo ML pipeline (data ingestion + model research)
+- Two-environment design: Windows (pipeline) + Ubuntu P100 (training)
+- Session state machine: pending → ... → cleaned
+
+New modules detected (since baseline):
+- scripts/extract_yolo_format.py   — SANPO mask → YOLO polygon label export
+- scripts/split_dataset.py         — train/val shard split from pipeline_progress.json
+- model/feature_extractor.py       — YOLO backbone P3/P4/P5 feature hook exploration
+- scripts/yolo26_explore.py        — YOLO layer inspection utility
+
+Data pipeline
+-------------
+- 9 modules in scripts/data_pipeline/
+- State machine progress tracked in data/pipeline_progress.json
+- Shard format: WebDataset .tar (png + _seg.png + _depth.npy + json)
+
+Dependencies
+------------
+- ultralytics (YOLO backbone)
+- webdataset (streaming)
+- gcloud storage + rclone (remote I/O)
+- scikit-learn (train_test_split only)
+
+Staleness warnings
+------------------
+- No previous codemaps — all fresh
+- docs/ contains SDD and plan docs; verify alignment with current implementation

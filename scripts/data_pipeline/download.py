@@ -20,8 +20,7 @@ def _gcloud_ls(gcs_path: str) -> bool:
     result = subprocess.run(
         ["gcloud", "storage", "ls", gcs_path],
         capture_output=True,
-        text=True,
-        shell=True
+        text=True
     )
     return result.returncode == 0
 
@@ -32,8 +31,7 @@ def _gcloud_cp(gcs_src: str, local_dst: Path) -> bool:
     result = subprocess.run(
         ["gcloud", "storage", "cp", "-r", gcs_src, str(local_dst)],
         capture_output=True,
-        text=True,
-        shell=True
+        text=True
     )
     if result.returncode != 0:
         logger.error(f"gcloud cp failed: {result.stderr.strip()}")
