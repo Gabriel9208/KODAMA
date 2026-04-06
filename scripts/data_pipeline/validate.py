@@ -7,7 +7,7 @@ import shutil
 from pathlib import Path
 from typing import Callable
 
-from .progress import _now_iso, save_progress
+from .progress import _now_iso, save_progress, sessions
 
 logger = logging.getLogger(__name__)
 
@@ -115,11 +115,11 @@ def validate_session(session_id: str, progress: dict, config: dict) -> dict:
     raw_dir = Path(config["paths"]["raw_dir"])
     session_dir = raw_dir / session_id
     cameras = _discover_cameras(session_dir, config)
-    session_info = progress["sessions"][session_id]
+    session_info = sessions(progress, config)[session_id]
 
     valid_cameras = []
     total_frames = {}
-    fail_reasons = []
+    camera_fail_reasons: dict[str, str] = {}
 
     for camera in cameras:
         cam_base = str(session_dir / camera / "left")
@@ -135,13 +135,13 @@ def validate_session(session_id: str, progress: dict, config: dict) -> dict:
             total_frames[camera] = frame_count
             logger.info(f"    {camera}: PASSED ({frame_count} frames)")
         else:
-            fail_reasons.append(reason)
+            camera_fail_reasons[camera] = reason
             logger.warning(f"    {camera}: FAILED — {reason}")
             _delete_camera_data(session_dir, camera)
 
     if not valid_cameras:
         session_info["status"] = "skipped"
-        session_info["skip_reason"] = "; ".join(fail_reasons)
+        session_info["skip_reason"] = "; ".join(camera_fail_reasons.values())
         session_info["skipped_at"] = _now_iso()
         # Delete entire raw session
         if session_dir.exists():
@@ -153,6 +153,9 @@ def validate_session(session_id: str, progress: dict, config: dict) -> dict:
         session_info["validated_at"] = _now_iso()
         session_info["valid_cameras"] = valid_cameras
         session_info["total_frames"] = total_frames
+        if camera_fail_reasons:
+            session_info["skip_reason"] = "; ".join(camera_fail_reasons.values())
+            session_info["camera_skip_reasons"] = camera_fail_reasons
         logger.info(
             f"  Session {session_id} → validated "
             f"(cameras: {valid_cameras})"

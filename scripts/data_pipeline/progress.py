@@ -46,6 +46,51 @@ def _validate_decimation_config(progress: dict, config: dict) -> None:
         sys.exit(1)
 
 
+def _migrate_if_needed(progress: dict) -> dict:
+    """Migrate old flat sessions format to partitioned {train: {}, test: {}} format."""
+    raw = progress.get("sessions", {})
+    # Old format: top-level keys are session IDs (values have a "status" field directly).
+    # New format: top-level keys are split names ("train", "test").
+    if raw and "train" not in raw and "test" not in raw:
+        logger.info("Migrating progress file to split-partitioned format (train / test).")
+        progress["sessions"] = {"train": raw, "test": {}}
+    else:
+        progress["sessions"].setdefault("train", {})
+        progress["sessions"].setdefault("test", {})
+    return progress
+
+
+def sessions(progress: dict, config: dict) -> dict:
+    """Return the mutable session dict for the active split.
+
+    Mutating the returned dict mutates progress in-place, so callers
+    can read and write session entries without touching split routing.
+    """
+    split = config.get("split", "train")
+    return progress["sessions"][split]
+
+
+def clear_stale_pending_sessions(progress: dict, config: dict) -> int:
+    """Strip extra keys from any session that is pending but has leftover state.
+
+    A "stale pending" session has status=pending but carries extra fields
+    (e.g. downloaded_at, skip_reason) from a previous run that was manually
+    reset. Clears those fields so the session starts fresh.
+
+    Returns the count of sessions cleaned.
+    """
+    sess = sessions(progress, config)
+    stale = [
+        sid for sid, info in sess.items()
+        if info.get("status") == "pending" and len(info) > 1
+    ]
+    for sid in stale:
+        sess[sid] = {"status": "pending"}
+    if stale:
+        logger.info(f"Cleared stale data from {len(stale)} pending session(s).")
+    return len(stale)
+
+
 def load_progress(config: dict) -> dict:
     """Load pipeline_progress.json. Handle .tmp recovery."""
     progress_file = Path(config["paths"]["progress_file"])
@@ -57,14 +102,15 @@ def load_progress(config: dict) -> dict:
 
     if progress_file.exists():
         with open(progress_file, "r", encoding="utf-8") as f:
-            return json.load(f)
+            progress = json.load(f)
+        return _migrate_if_needed(progress)
 
     # Initialize new progress
     decimation_config = _load_decimation_config(config)
-    return {
+    return _migrate_if_needed({
         "decimation_config": decimation_config,
         "sessions": {},
-    }
+    })
 
 
 def save_progress(progress: dict, config: dict) -> None:

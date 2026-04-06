@@ -8,9 +8,9 @@ def format_batch_range(batch_index: int, batch_size: int, total_sessions: int) -
     return f"{start}~{end} / {total_sessions}"
 
 
-def format_resume_summary(progress: dict, total_sessions: int) -> str:
-    """Format resume summary string. e.g. 'Resuming pipeline: 24 / 560 sessions completed, 3 skipped'."""
-    sessions = progress.get("sessions", {})
-    cleaned = sum(1 for s in sessions.values() if s.get("status") == "cleaned")
-    skipped = sum(1 for s in sessions.values() if s.get("status") == "skipped")
-    return f"Resuming pipeline: {cleaned} / {total_sessions} sessions completed, {skipped} skipped"
+def format_resume_summary(progress: dict, total_sessions: int, split: str = "train") -> str:
+    """Format resume summary string. e.g. '[train] Resuming pipeline: 24 / 560 sessions completed, 3 skipped'."""
+    split_sessions = progress.get("sessions", {}).get(split, {})
+    cleaned = sum(1 for s in split_sessions.values() if s.get("status") == "cleaned")
+    skipped = sum(1 for s in split_sessions.values() if s.get("status") == "skipped")
+    return f"[{split}] Resuming pipeline: {cleaned} / {total_sessions} sessions completed, {skipped} skipped"

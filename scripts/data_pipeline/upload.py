@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 
 from .pack import _increment_batch_index
-from .progress import _now_iso, save_progress
+from .progress import _now_iso, save_progress, sessions
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +42,10 @@ def upload_shards(batch_sessions: list[str], progress: dict, config: dict) -> di
         logger.error("rclone copy failed. Will retry on next run.")
         return progress
 
+    sess = sessions(progress, config)
     for sid in batch_sessions:
-        progress["sessions"][sid]["status"] = "uploaded"
-        progress["sessions"][sid]["uploaded_at"] = _now_iso()
+        sess[sid]["status"] = "uploaded"
+        sess[sid]["uploaded_at"] = _now_iso()
 
     save_progress(progress, config)
     logger.info("Upload complete.")
@@ -69,19 +70,20 @@ def verify_shards(batch_sessions: list[str], progress: dict, config: dict) -> di
         text=True,
     )
 
+    sess = sessions(progress, config)
     if result.returncode != 0:
         logger.error(
             f"rclone check failed.\n{result.stderr.strip()}\n"
             "Will re-upload and re-verify on next run."
         )
         for sid in batch_sessions:
-            progress["sessions"][sid]["status"] = "packed"
+            sess[sid]["status"] = "packed"
         save_progress(progress, config)
         return progress
 
     for sid in batch_sessions:
-        progress["sessions"][sid]["status"] = "verified"
-        progress["sessions"][sid]["verified_at"] = _now_iso()
+        sess[sid]["status"] = "verified"
+        sess[sid]["verified_at"] = _now_iso()
 
     save_progress(progress, config)
     logger.info("Verification passed.")
@@ -93,10 +95,11 @@ def cleanup_batch(batch_sessions: list[str], progress: dict, config: dict) -> di
     raw_dir = Path(config["paths"]["raw_dir"])
     processed_dir = Path(config["paths"]["processed_dir"])
     shards_dir = Path(config["paths"]["shards_dir"])
+    sess = sessions(progress, config)
 
     # Safety: all batch sessions must be verified
     all_verified = all(
-        progress["sessions"][sid]["status"] == "verified"
+        sess[sid]["status"] == "verified"
         for sid in batch_sessions
     )
     if not all_verified:
@@ -124,10 +127,10 @@ def cleanup_batch(batch_sessions: list[str], progress: dict, config: dict) -> di
     logger.info(f"  Deleted {len(shard_files)} shard files")
 
     for sid in batch_sessions:
-        progress["sessions"][sid]["status"] = "cleaned"
-        progress["sessions"][sid]["cleaned_at"] = _now_iso()
+        sess[sid]["status"] = "cleaned"
+        sess[sid]["cleaned_at"] = _now_iso()
 
-    _increment_batch_index(progress)
+    _increment_batch_index(progress, config)
     save_progress(progress, config)
     logger.info("Cleanup complete. Ready for next batch.")
     return progress

@@ -8,8 +8,10 @@ from pathlib import Path
 from .progress import (
     _available_disk_gb,
     _now_iso,
+    clear_stale_pending_sessions,
     load_session_ids,
     save_progress,
+    sessions,
 )
 
 logger = logging.getLogger(__name__)
@@ -39,15 +41,16 @@ def _gcloud_cp(gcs_src: str, local_dst: Path) -> bool:
     return True
 
 
-def _integrity_check_post_download(session_dir: Path) -> bool:
+def _integrity_check_post_download(session_dir: Path, valid_cameras: list[str]) -> bool:
     """
     Basic check after download: video_frames/ must exist and be non-empty
-    for at least camera_chest/left.
+    for at least one of the downloaded cameras.
     """
-    chest_frames = session_dir / "camera_chest" / "left" / "video_frames"
-    if not chest_frames.exists() or not any(chest_frames.iterdir()):
-        return False
-    return True
+    for camera in valid_cameras:
+        cam_frames = session_dir / camera / "left" / "video_frames"
+        if cam_frames.exists() and any(cam_frames.iterdir()):
+            return True
+    return False
 
 
 def _delete_raw_session(session_id: str, config: dict) -> None:
@@ -59,58 +62,100 @@ def _delete_raw_session(session_id: str, config: dict) -> None:
         logger.info(f"  Deleted raw data: {session_dir}")
 
 
-def download_session(session_id: str, progress: dict, config: dict) -> str:
+def download_session(session_id: str, progress: dict, config: dict) -> dict:
     """
     Download a single session from GCS.
 
-    Returns the new status: "downloaded", "skipped", or "error".
+    Returns a dict of session fields to merge into the progress entry.
+    Always includes "status". May include: downloaded_at, skipped_at,
+    skip_reason, camera_skip_reasons, cameras_missing_depth.
     """
     gcs_bucket = config["remote"]["gcs_bucket"]
     raw_dir = Path(config["paths"]["raw_dir"])
     gcs_base = f"{gcs_bucket}/{session_id}"
     local_base = raw_dir / session_id
 
-    cameras_to_download = ["camera_chest"]
+    cameras_to_check = ["camera_chest"]
 
-    # Check if camera_head exists
-    head_gcs = f"{gcs_base}/camera_head/left/"
-    if _gcloud_ls(head_gcs):
-        cameras_to_download.append("camera_head")
+    if _gcloud_ls(f"{gcs_base}/camera_head/left/"):
+        cameras_to_check.append("camera_head")
         logger.info(f"  camera_head detected for {session_id}")
     else:
         logger.info(f"  camera_head not found for {session_id}, downloading chest only")
 
-    # Download each camera
-    data_types = ["video_frames", "segmentation_masks", "depth_maps"]
+    # Phase A: GCS existence checks with differentiated handling
+    camera_skip_reasons: dict[str, str] = {}
+    cameras_missing_depth: list[str] = []
+    valid_cameras: list[str] = []
 
-    for camera in cameras_to_download:
-        for dtype in data_types:
+    for camera in cameras_to_check:
+        skip_this_camera = False
+        for dtype in ("video_frames", "segmentation_masks"):
+            if not _gcloud_ls(f"{gcs_base}/{camera}/left/{dtype}"):
+                reason = f"{dtype} missing on GCS"
+                logger.warning(f"  {camera}/left/{dtype} not found in GCS — skipping camera")
+                camera_skip_reasons[camera] = reason
+                skip_this_camera = True
+                break
+        if skip_this_camera:
+            continue
+
+        # depth_maps is optional — missing is non-fatal for the camera
+        if not _gcloud_ls(f"{gcs_base}/{camera}/left/depth_maps"):
+            logger.warning(
+                f"  {camera}/left/depth_maps not found in GCS — "
+                "will download video_frames + segmentation_masks only"
+            )
+            cameras_missing_depth.append(camera)
+
+        valid_cameras.append(camera)
+
+    # All cameras failed existence check → session-level skip
+    if not valid_cameras:
+        _delete_raw_session(session_id, config)
+        result: dict = {
+            "status": "skipped",
+            "skip_reason": "no valid cameras: all missing required data types on GCS",
+            "skipped_at": _now_iso(),
+        }
+        if camera_skip_reasons:
+            result["camera_skip_reasons"] = camera_skip_reasons
+        return result
+
+    # Phase B: Download valid cameras (only confirmed-present data types)
+    for camera in valid_cameras:
+        dtypes_to_download = ["video_frames", "segmentation_masks"]
+        if camera not in cameras_missing_depth:
+            dtypes_to_download.append("depth_maps")
+
+        for dtype in dtypes_to_download:
             gcs_src = f"{gcs_base}/{camera}/left/{dtype}"
             local_dst = local_base / camera / "left"
-
-            if not _gcloud_ls(gcs_src):
-                if camera == "camera_chest" and dtype == "video_frames":
-                    logger.warning(f"  {camera}/left/{dtype} not found in GCS — marking skipped")
-                    _delete_raw_session(session_id, config)
-                    return "skipped"
-                else:
-                    logger.info(f"  {camera}/left/{dtype} not found in GCS — skipping this directory")
-                    continue
-
             logger.info(f"  Downloading {camera}/left/{dtype} ...")
-            success = _gcloud_cp(gcs_src, local_dst)
-            if not success:
+            if not _gcloud_cp(gcs_src, local_dst):
                 logger.error(f"  Download failed for {camera}/left/{dtype}")
                 _delete_raw_session(session_id, config)
-                return "error"
+                return {"status": "error"}
 
     # Integrity check
-    if not _integrity_check_post_download(local_base):
+    if not _integrity_check_post_download(local_base, valid_cameras):
         logger.warning(f"  Integrity check failed for {session_id} — video_frames missing or empty")
         _delete_raw_session(session_id, config)
-        return "skipped"
+        return {
+            "status": "skipped",
+            "skip_reason": "integrity check failed: video_frames missing or empty",
+            "skipped_at": _now_iso(),
+        }
 
-    return "downloaded"
+    result = {"status": "downloaded", "downloaded_at": _now_iso()}
+    if camera_skip_reasons:
+        result["camera_skip_reasons"] = camera_skip_reasons
+        result["skip_reason"] = "; ".join(
+            f"{cam}: {reason}" for cam, reason in camera_skip_reasons.items()
+        )
+    if cameras_missing_depth:
+        result["cameras_missing_depth"] = cameras_missing_depth
+    return result
 
 
 _IN_FLIGHT_STATUSES = (
@@ -132,10 +177,17 @@ def download_batch(progress: dict, config: dict) -> dict:
     estimated_session_size_gb = config["download"]["estimated_session_size_gb"]
     data_dir = Path(config["paths"]["data_dir"])
 
+    sess = sessions(progress, config)
+
+    # Clear any stale pending sessions before filtering
+    cleaned = clear_stale_pending_sessions(progress, config)
+    if cleaned:
+        save_progress(progress, config)
+
     # Count sessions already in-flight (downloaded but not yet cleaned)
     in_flight = [
         sid for sid in all_session_ids
-        if progress["sessions"].get(sid, {}).get("status") in _IN_FLIGHT_STATUSES
+        if sess.get(sid, {}).get("status") in _IN_FLIGHT_STATUSES
     ]
     slots_available = batch_size - len(in_flight)
 
@@ -149,7 +201,7 @@ def download_batch(progress: dict, config: dict) -> dict:
     # Filter to sessions that need downloading
     pending = []
     for sid in all_session_ids:
-        session_info = progress["sessions"].get(sid, {})
+        session_info = sess.get(sid, {})
         status = session_info.get("status", "pending")
         if status in ("pending", "error"):
             pending.append(sid)
@@ -180,14 +232,14 @@ def download_batch(progress: dict, config: dict) -> dict:
 
     for sid in batch:
         logger.info(f"Processing session: {sid}")
-        new_status = download_session(sid, progress, config)
+        session_update = download_session(sid, progress, config)
 
-        if sid not in progress["sessions"]:
-            progress["sessions"][sid] = {}
+        if sid not in sess:
+            sess[sid] = {}
+        sess[sid].update(session_update)
+        new_status = session_update["status"]
 
-        progress["sessions"][sid]["status"] = new_status
         if new_status == "downloaded":
-            progress["sessions"][sid]["downloaded_at"] = _now_iso()
             logger.info("  → downloaded")
         elif new_status == "skipped":
             logger.info("  → skipped (permanent)")

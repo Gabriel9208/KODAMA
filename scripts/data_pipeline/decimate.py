@@ -4,7 +4,7 @@ import logging
 import os
 from pathlib import Path
 
-from .progress import _now_iso, save_progress
+from .progress import _now_iso, save_progress, sessions
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ def decimate_session(session_id: str, progress: dict, config: dict) -> dict:
     Returns updated progress dict.
     """
     raw_dir = Path(config["paths"]["raw_dir"])
-    session_info = progress["sessions"][session_id]
+    session_info = sessions(progress, config)[session_id]
     dec_config = progress["decimation_config"]
     interval = dec_config["interval"]
     offset = dec_config["offset"]

@@ -7,19 +7,22 @@ import re
 import tarfile
 from pathlib import Path
 
-from .progress import _now_iso, save_progress
+from .progress import _now_iso, save_progress, sessions
 
 logger = logging.getLogger(__name__)
 
 
-def _get_batch_index(progress: dict) -> int:
-    """Determine the current batch index from progress."""
-    return progress.get("next_batch_index", 0)
+def _get_batch_index(progress: dict, config: dict | None = None) -> int:
+    """Determine the current batch index from progress (split-specific)."""
+    split = config.get("split", "train") if config else "train"
+    return progress.get(f"next_batch_index_{split}", 0)
 
 
-def _increment_batch_index(progress: dict) -> None:
-    """Increment batch index after a successful batch."""
-    progress["next_batch_index"] = progress.get("next_batch_index", 0) + 1
+def _increment_batch_index(progress: dict, config: dict | None = None) -> None:
+    """Increment batch index after a successful batch (split-specific)."""
+    split = config.get("split", "train") if config else "train"
+    key = f"next_batch_index_{split}"
+    progress[key] = progress.get(key, 0) + 1
 
 
 def _parse_processed_filename(filename: str) -> tuple[str, str] | None:
@@ -51,13 +54,14 @@ def pack_shards(batch_sessions: list[str], progress: dict, config: dict) -> dict
         )
         return progress
 
-    batch_index = _get_batch_index(progress)
+    batch_index = _get_batch_index(progress, config)
     shard_pattern = os.path.relpath(shards_dir / f"shard-{batch_index:03d}-%06d.tar")
     decimation_config = progress["decimation_config"]
+    sess = sessions(progress, config)
 
     total_samples = 0
     expected_samples = sum(
-        progress["sessions"][sid].get("patch_count", 0) for sid in batch_sessions
+        sess[sid].get("patch_count", 0) for sid in batch_sessions
     )
 
     logger.info(
@@ -67,7 +71,7 @@ def pack_shards(batch_sessions: list[str], progress: dict, config: dict) -> dict
 
     with wds.ShardWriter(shard_pattern, maxsize=shard_max_size) as sink:
         for sid in batch_sessions:
-            session_info = progress["sessions"][sid]
+            session_info = sess[sid]
             valid_cameras = session_info.get("valid_cameras", [])
 
             for camera in valid_cameras:
@@ -151,9 +155,9 @@ def pack_shards(batch_sessions: list[str], progress: dict, config: dict) -> dict
 
     # Update all batch sessions
     for sid in batch_sessions:
-        progress["sessions"][sid]["status"] = "packed"
-        progress["sessions"][sid]["packed_at"] = _now_iso()
-        progress["sessions"][sid]["shard_files"] = shard_files
+        sess[sid]["status"] = "packed"
+        sess[sid]["packed_at"] = _now_iso()
+        sess[sid]["shard_files"] = shard_files
 
     save_progress(progress, config)
     return progress

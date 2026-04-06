@@ -10,12 +10,15 @@ paths:
   shards_dir: "data/shards"
   progress_file: "data/pipeline_progress.json"
   session_ids_file: "data/sanpo_dataset_v0_sanpo-real_splits_train_session_ids.txt"
+  session_ids_file_test: "data/sanpo_dataset_v0_sanpo-real_splits_test_session_ids.txt"
+  shards_dir_test: "data/test_shards"
   decimation_config_file: "configs/decimation_config.yaml"
 
 # --- Remote Storage ---
 remote:
   gcs_bucket: "gs://gresearch/sanpo_dataset/v0/sanpo-real"
   gdrive_remote: "gdrive:SANPO-Dataset/shards/"
+  gdrive_remote_test: "gdrive:SANPO-Dataset/test_shards/"
 
 # --- Download ---
 download:

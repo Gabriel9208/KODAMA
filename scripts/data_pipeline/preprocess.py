@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .config import PROJECT_ROOT
 from .decimate import _decimate_indices
-from .progress import _now_iso, load_session_ids, save_progress
+from .progress import _now_iso, load_session_ids, save_progress, sessions
 from .validate import _extract_frame_id, validate_session
 
 logger = logging.getLogger(__name__)
@@ -142,7 +142,8 @@ def preprocess_session(session_id: str, progress: dict, config: dict) -> dict:
     """
     raw_dir = Path(config["paths"]["raw_dir"])
     patch_positions = config["preprocess"]["patch_positions"]
-    session_info = progress["sessions"][session_id]
+    sess = sessions(progress, config)
+    session_info = sess[session_id]
     raw_base = raw_dir / session_id
 
     # Recompute decimation if needed (deterministic, so always safe)
@@ -216,15 +217,17 @@ def validate_decimate_preprocess(progress: dict, config: dict) -> dict:
 
     all_session_ids = load_session_ids(config)
 
+    sess = sessions(progress, config)
+
     for sid in all_session_ids:
-        session_info = progress["sessions"].get(sid, {})
+        session_info = sess.get(sid, {})
         status = session_info.get("status", "pending")
 
         # Step 0: Validate
         if status == "downloaded":
             logger.info(f"Validating {sid}")
             progress = validate_session(sid, progress, config)
-            status = progress["sessions"][sid]["status"]
+            status = sess[sid]["status"]
             if status == "skipped":
                 continue
 
@@ -232,7 +235,7 @@ def validate_decimate_preprocess(progress: dict, config: dict) -> dict:
         if status == "validated":
             logger.info(f"Decimating {sid}")
             progress = decimate_session(sid, progress, config)
-            status = progress["sessions"][sid]["status"]
+            status = sess[sid]["status"]
             if status == "error":
                 continue
 

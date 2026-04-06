@@ -18,17 +18,19 @@ def split_dataset() -> None:
         print("No configs/split_config.yaml file found.")
         return
 
+    split_sessions = progress.get("sessions", {}).get("train", progress.get("sessions", {}))
+
     sessions = [
-        sid 
-        for sid, v in progress["sessions"].items() if v["status"] == "cleaned"
+        sid
+        for sid, v in split_sessions.items() if v["status"] == "cleaned"
     ]
-    
+
     for sid in sessions:
-        if len(progress["sessions"][sid]["shard_files"]) > 1:
-            print(f"⚠️ Session {sid} spans multiple shards: {progress['sessions'][sid]['shard_files']}")
-    
+        if len(split_sessions[sid]["shard_files"]) > 1:
+            print(f"⚠️ Session {sid} spans multiple shards: {split_sessions[sid]['shard_files']}")
+
     train_sessions, val_sessions = train_test_split(
-        sessions, 
+        sessions,
         test_size=split_config["split"]["val_portion"],
         random_state=split_config["split"]["seed"]
     )
@@ -36,13 +38,13 @@ def split_dataset() -> None:
     train_shards = set([
         shard_files
         for sid in train_sessions
-        for shard_files in progress["sessions"][sid]["shard_files"]
+        for shard_files in split_sessions[sid]["shard_files"]
     ])
 
     val_shards = set([
         shard_files
         for sid in val_sessions
-        for shard_files in progress["sessions"][sid]["shard_files"]
+        for shard_files in split_sessions[sid]["shard_files"]
     ])
 
     val_shards_clean = val_shards - train_shards
