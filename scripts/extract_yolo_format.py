@@ -113,7 +113,7 @@ def extract_yolo_format(mask: np.ndarray, output_path: str):
       
 
 if __name__ == "__main__":
-    shard_dir = "data/shards"
+    shard_dir = "data/train_shards"
     
     if not os.path.exists("data/images/train"):
         os.makedirs("data/images/train", exist_ok=True)

@@ -18,3 +18,21 @@ names:
   12: bus stop
   13: bike rack
   14: tree
+
+# ID   Class                      Pixels  Instances
+# --------------------------------------------------
+# 0    crosswalk               258058598       5768
+# 1    opening-door             37426381       3074
+# 2    opening-gate             13254305       1084
+# 3    pedestrian              275496321      44655
+# 4    rider                     3919529        933
+# 5    animal                    4496007       2328
+# 6    stairs                   59459274       1783
+# 7    obstacle                419617080      60316
+# 8    vehicle                 356725650      45967
+# 9    traffic sign              3611536       3950
+# 10   traffic light             3247177       4169
+# 11   pole                     86879397      20343
+# 12   bus stop                   304207         73
+# 13   bike rack                12182174       3406
+# 14   tree                    520951715      38516
