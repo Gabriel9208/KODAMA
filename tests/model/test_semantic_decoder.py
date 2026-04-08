@@ -1,6 +1,6 @@
 import pytest
 import torch
-from model.semantic_decoder import UpsampleBlock, SementicDecoder
+from src.models.semantic_decoder import UpsampleBlock, SementicDecoder
 
 
 # ---------------------------------------------------------------------------
