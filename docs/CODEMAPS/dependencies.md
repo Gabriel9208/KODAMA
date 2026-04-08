@@ -1,4 +1,4 @@
-<!-- Generated: 2026-04-04 | Files scanned: 23 | Token estimate: ~400 -->
+<!-- Generated: 2026-04-08 | Files scanned: 28 | Token estimate: ~450 -->
 
 # Dependencies
 
@@ -39,6 +39,17 @@
 | GCS `gs://gresearch/sanpo_dataset/v0/sanpo-real` | Raw data source (read-only) |
 | Google Drive `gdrive:SANPO-Dataset/shards/` | Packed shard storage + streaming source |
 
-## Model Checkpoint
+## Model Architecture
 
-`model/yolo26n-seg.pt` — frozen YOLO backbone. Feature extraction hooks registered at layers 16 (P3), 19 (P4), 22 (P5).
+| Component | File | Purpose |
+|-----------|------|---------|
+| YOLO Backbone (Frozen) | `model/yolo26n-seg.pt` | Input feature extraction (layers 16/19/22 → P3/P4/P5) |
+| Feature Extractor | `src/models/feature_extractor.py` | Hook-based capture of P3, P4, P5 tensors |
+| Semantic Decoder | `model/semantic_decoder.py` | FPN fusion + semantic segmentation head |
+
+**YOLO Layers:**
+- Layer 16 (P3): 80×60, 64 channels
+- Layer 19 (P4): 40×30, 128 channels  
+- Layer 22 (P5): 20×15, 256 channels
+
+**Decoder output:** (batch, 30 classes, 640, 480)

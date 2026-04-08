@@ -28,3 +28,19 @@ print("orig_shape: " + str(result[0].masks.orig_shape )) # (height, width)
 print(model.model.yaml)
 #print(model.model.model[-1])
 feature = {}
+
+def hook_fn(name):
+    def hook(m, i, o):
+        feature[name] = o.shape
+    return hook
+
+# Register hooks for P3, P4, P5 (Layers 16, 19, 22)
+model.model.model[16].register_forward_hook(hook_fn("P3"))
+model.model.model[19].register_forward_hook(hook_fn("P4"))
+model.model.model[22].register_forward_hook(hook_fn("P5"))
+
+result = model.predict("bus.jpg")
+
+print("\n=== Feature Map Shapes ===")
+for name, shape in feature.items():
+    print(f"{name}: {shape}")

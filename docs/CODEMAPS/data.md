@@ -1,4 +1,4 @@
-<!-- Generated: 2026-04-04 | Files scanned: 23 | Token estimate: ~500 -->
+<!-- Generated: 2026-04-08 | Files scanned: 28 | Token estimate: ~550 -->
 
 # Data Architecture
 
@@ -54,6 +54,26 @@ instance_id = G * 256 + B
 
 `data/pipeline_progress.json` — tracks per-session status + shard file assignments.
 Read/written atomically via `scripts/data_pipeline/progress.py`.
+
+Structure:
+```json
+{
+  "decimation_config": {...},
+  "sessions": {
+    "train": {
+      "session_00001": {
+        "status": "cleaned",
+        "shard_id": 5,
+        "shard_index": 0
+      },
+      ...
+    },
+    "test": {...}
+  }
+}
+```
+
+Split-aware progress: `train` and `test` partitions track independently.
 
 ## Preprocessing: Image Patch Extraction
 

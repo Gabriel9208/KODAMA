@@ -1,4 +1,4 @@
-<!-- Generated: 2026-04-04 | Files scanned: 23 | Token estimate: ~600 -->
+<!-- Generated: 2026-04-08 | Files scanned: 28 | Token estimate: ~700 -->
 
 # KODAMA Architecture
 
@@ -34,9 +34,12 @@ pending → downloaded → validated → decimated → processed → packed → 
 |---|---|
 | `scripts/run_pipeline.py` | Batch orchestrator (Windows, GCS → GDrive) |
 | `scripts/run_stream.py` | Training streamer (Ubuntu P100, mounts GDrive) |
-| `scripts/data_pipeline/` | Modular pipeline package |
-| `src/` | PyTorch dataset, metrics, preprocessing utils |
-| `model/` | YOLO backbone exploration / feature extraction |
+| `scripts/data_pipeline/` | Modular pipeline package (11 modules) |
+| `src/datasets/` | PyTorch Dataset — loads RGB+segmentation+depth |
+| `src/metrics/` | Panoptic Quality (PQ/SQ/RQ) metric calculation |
+| `src/models/` | FeatureExtractor — hook-based YOLO feature extraction |
+| `src/utils/` | SANPO_data_processor — image crop + depth processing |
+| `model/` | Semantic decoder (FPN) + YOLO feature hooks |
 | `scripts/extract_yolo_format.py` | Convert SANPO masks → YOLO segmentation labels |
 | `scripts/split_dataset.py` | Train/val shard split from pipeline progress |
 

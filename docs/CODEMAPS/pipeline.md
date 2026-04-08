@@ -1,4 +1,4 @@
-<!-- Generated: 2026-04-04 | Files scanned: 23 | Token estimate: ~700 -->
+<!-- Generated: 2026-04-08 | Files scanned: 28 | Token estimate: ~850 -->
 
 # Pipeline & Source Modules
 
@@ -34,11 +34,36 @@
 | `src/metrics/panoptic_quality.py` | 102 | `calculate_pq(g, p)` → `PanopticQualityResult`; PQ/SQ/RQ per class |
 | `src/utils/SANPO_data_processor.py` | 88 | `SANPO_data_processor.image_crop()`, `process_and_patch_sanpo_depth()` |
 
-## model/ Module
+## model/ Modules
 
 | Module | Lines | Purpose |
 |---|---|---|
 | `model/feature_extractor.py` | 48 | Forward hook registration on YOLO layers 16/19/22 (P3/P4/P5) |
+| `model/semantic_decoder.py` | 71 | FPN-based semantic decoder (NEW) — UpsampleBlocks + class head |
+
+### semantic_decoder.py (FPN Decoder)
+
+```python
+class UpsampleBlock(nn.Module):
+    """Conv → GroupNorm → ReLU → Upsample(2x)"""
+    forward(x) → upsampled feature
+
+class SementicDecoder(nn.Module):
+    """FPN decoder with three pathways:
+    - P3 (80×60, 64ch)  → pass-through
+    - P4 (40×30, 128ch) → UpsampleBlock → 80×60, 64ch
+    - P5 (20×15, 256ch) → 2× UpsampleBlock → 80×60, 64ch
+    - Fuse via addition → Conv(1x1) → Upsample(8x) → output (num_classes, H, W)
+    """
+    forward(p3, p4, p5) → (H, W, num_classes)
+```
+
+**Input shapes:**
+- P3: (1, 64, 80, 60) — YOLO layer 16
+- P4: (1, 128, 40, 30) — YOLO layer 19
+- P5: (1, 256, 20, 15) — YOLO layer 22
+
+**Output shape:** (1, num_classes, 640, 480) — 8× upsampled from P3
 
 ## YOLO Label Extraction (`scripts/extract_yolo_format.py`)
 
