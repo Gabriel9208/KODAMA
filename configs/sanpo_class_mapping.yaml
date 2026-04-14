@@ -1,0 +1,32 @@
+classes:
+  0: { name: unlabeled, type: semantic }
+  1: { name: road, type: semantic }
+  2: { name: curb, type: semantic }
+  3: { name: sidewalk, type: semantic }
+  4: { name: guard rail/road barrier, type: semantic }
+  5: { name: crosswalk, type: panoptic }
+  6: { name: paved trail, type: semantic }
+  7: { name: building, type: semantic }
+  8: { name: wall/fence, type: semantic }
+  9: { name: hand rail, type: semantic }
+  10: { name: opening-door, type: panoptic }
+  11: { name: opening-gate, type: panoptic }
+  12: { name: pedestrian, type: panoptic }
+  13: { name: rider, type: panoptic }
+  14: { name: animal, type: panoptic }
+  15: { name: stairs, type: panoptic }
+  16: { name: water body, type: semantic }
+  17: { name: other walkable surface, type: semantic }
+  18: { name: inaccessible surface, type: semantic }
+  19: { name: railway track, type: semantic }
+  20: { name: obstacle, type: panoptic }
+  21: { name: vehicle, type: panoptic }
+  22: { name: traffic sign, type: panoptic }
+  23: { name: traffic light, type: panoptic }
+  24: { name: pole, type: panoptic }
+  25: { name: bus stop, type: panoptic }
+  26: { name: bike rack, type: panoptic }
+  27: { name: sky, type: semantic }
+  28: { name: tree, type: panoptic }
+  29: { name: vegetation, type: semantic }
+  30: { name: terrain, type: semantic }
