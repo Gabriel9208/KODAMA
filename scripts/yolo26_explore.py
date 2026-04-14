@@ -1,10 +1,5 @@
 from ultralytics import YOLO
 
-def hook_fn(name):
-    def hook(model, input, output):
-        feature[name] = output
-    return hook
-
 model = YOLO("model/yolo26n-seg.pt")
 
 result = model.predict("https://ultralytics.com/images/bus.jpg", save=True)
