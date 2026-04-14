@@ -1,5 +1,3 @@
-import os
-
 from ultralytics import YOLO
 
 model = YOLO("model/yolo26n-seg.pt")
