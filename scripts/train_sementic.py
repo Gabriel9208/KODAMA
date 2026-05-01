@@ -1,5 +1,4 @@
 import torch
-import torch.nn as nn
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.optim import AdamW
 from src.models.semantic_decoder import SementicDecoder
