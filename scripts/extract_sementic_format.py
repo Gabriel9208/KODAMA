@@ -1,7 +1,5 @@
 import cv2
 import numpy as np
-from collections import defaultdict
-from typing import Dict, Tuple
 import yaml
 import tarfile 
 import os
