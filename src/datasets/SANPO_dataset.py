@@ -4,13 +4,12 @@ import cv2
 import numpy as np
 import torch
 
-class SANPO__dataset(Dataset):
-    def __init__(self, data_dir):
+class SANPO_dataset(Dataset):
+    def __init__(self, rgb_dir, seg_dir, depth_dir):
         super().__init__()
-        self.data_dir = data_dir
-        self.rgb_dir = os.path.join(data_dir, "video_frames")
-        self.seg_dir = os.path.join(data_dir, "segmentation_masks")
-        self.depth_dir = os.path.join(data_dir, "depth_maps")
+        self.rgb_dir = rgb_dir
+        self.seg_dir = seg_dir
+        self.depth_dir = depth_dir
         self.rgb_files = sorted([f for f in os.listdir(self.rgb_dir) if f.endswith(".png")])
         self.seg_files = sorted([f for f in os.listdir(self.seg_dir) if f.endswith(".png")])
         self.depth_files = sorted([f for f in os.listdir(self.depth_dir) if f.endswith(".npy")])
