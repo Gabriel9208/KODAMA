@@ -1,6 +1,8 @@
 import torch
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.optim import AdamW
+import albumentations as A
+
 from src.models.semantic_decoder import SementicDecoder
 from src.models.feature_extractor import FeatureExtractor
 from src.engine.trainer import Trainer, TrainerConfig
@@ -17,6 +19,10 @@ cfg = TrainerConfig(
     checkpoint_dir="runs/semantic_decoder",
     resume_from="runs/semantic_decoder/last.pt",
 )
+
+cutmix_config = {
+    
+}
 
 rgb_dir = "data/images/train"
 seg_dir = "data/labels/train_semantic"
@@ -35,6 +41,7 @@ train_loader = torch.utils.data.DataLoader(
     shuffle=True, 
     num_workers=cfg.num_workers
 )
+
 
 val_loader = torch.utils.data.DataLoader(
     val_dataset, 

@@ -1,4 +1,4 @@
-from src.datasets.SANPO__dataset import SANPO__dataset
+from src.datasets.SANPO_dataset import SANPO__dataset
 import torch
 
 def test_SANPO__dataset():

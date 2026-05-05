@@ -14,10 +14,6 @@ from src.engine.callbacks import Callback
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
-
 
 @dataclass
 class TrainerConfig:
@@ -32,27 +28,7 @@ class TrainerConfig:
     resume_from: str | None = None
 
 
-# ---------------------------------------------------------------------------
-# Trainer
-# ---------------------------------------------------------------------------
-
-
 class Trainer:
-    """Single-GPU training loop for KODAMA's frozen-backbone + semantic decoder.
-
-    Responsibilities:
-    - Keep the feature extractor frozen; only the decoder is optimised.
-    - Normalise raw int32 RGB tensors (dataset dtype) to float32 [0, 1].
-    - Run backbone under ``torch.no_grad``; run decoder with optional AMP.
-    - Accumulate a per-epoch confusion matrix and report loss + mIoU.
-    - Dispatch lifecycle events to registered callbacks.
-    - Save/restore decoder-only checkpoints atomically.
-
-    Not responsible for:
-    - Building any component (model, optimizer, scheduler, data) — pass them in.
-    - Config management — ``cfg`` is treated as read-only after construction.
-    """
-
     def __init__(
         self,
         feature_extractor: nn.Module,
@@ -84,7 +60,6 @@ class Trainer:
 
         self._amp_dtype = _resolve_amp_dtype(cfg.amp_dtype, cfg.device)
         self._device_type = "cuda" if cfg.device.startswith("cuda") else "cpu"
-        # GradScaler is only needed for fp16; bf16 has the same dynamic range as fp32
         self.scaler: GradScaler | None = (
             GradScaler() if self._amp_dtype == torch.float16 else None
         )
@@ -95,10 +70,6 @@ class Trainer:
         if cfg.resume_from is not None:
             self._load_checkpoint(cfg.resume_from)
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
     def fit(self) -> None:
         self._emit("on_fit_start")
         for epoch in range(self.epoch, self.cfg.max_epochs):
@@ -107,10 +78,6 @@ class Trainer:
             val_metrics = self._run_epoch("val")
             self._emit("on_validation_end", val_metrics)
         self._emit("on_fit_end")
-
-    # ------------------------------------------------------------------
-    # Epoch loop
-    # ------------------------------------------------------------------
 
     def _run_epoch(self, stage: str) -> dict:
         is_train = stage == "train"
@@ -206,10 +173,6 @@ class Trainer:
         else:
             self.optimizer.step()
 
-    # ------------------------------------------------------------------
-    # Checkpoint
-    # ------------------------------------------------------------------
-
     def _load_checkpoint(self, path: str) -> None:
         if not os.path.exists(path):
             logger.warning("Checkpoint %s not found", path)
@@ -232,22 +195,12 @@ class Trainer:
             self.global_step,
         )
 
-    # ------------------------------------------------------------------
-    # Callback dispatch
-    # ------------------------------------------------------------------
-
     def _emit(self, hook: str, *args) -> None:
         for cb in self.callbacks:
             getattr(cb, hook)(self, *args)
 
 
-# ---------------------------------------------------------------------------
-# Private helpers
-# ---------------------------------------------------------------------------
-
-
 def _resolve_amp_dtype(dtype_str: str | None, device: str) -> torch.dtype | None:
-    """Return the torch dtype for AMP, or None if AMP is disabled."""
     if dtype_str is None or not device.startswith("cuda"):
         return None
     mapping = {"float16": torch.float16, "bfloat16": torch.bfloat16}
@@ -259,11 +212,6 @@ def _resolve_amp_dtype(dtype_str: str | None, device: str) -> torch.dtype | None
 def _confusion_matrix(
     preds: torch.Tensor, targets: torch.Tensor, num_classes: int
 ) -> torch.Tensor:
-    """Accumulate a (num_classes, num_classes) confusion matrix on CPU.
-
-    Row = ground-truth class, column = predicted class.
-    Pixels with targets outside [0, num_classes) are ignored (covers ignore_index).
-    """
     mask = (targets >= 0) & (targets < num_classes)
     combined = num_classes * targets[mask].long() + preds[mask].long()
     return torch.bincount(combined, minlength=num_classes * num_classes).reshape(
@@ -272,7 +220,6 @@ def _confusion_matrix(
 
 
 def _iou_metrics(conf: torch.Tensor, avg_loss: float) -> dict:
-    """Derive per-epoch mIoU from the accumulated confusion matrix."""
     tp = conf.diag().float()
     fn = (conf.sum(dim=1) - conf.diag()).float()
     fp = (conf.sum(dim=0) - conf.diag()).float()
