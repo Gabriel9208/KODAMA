@@ -19,14 +19,15 @@ cfg = TrainerConfig(
 )
 
 rgb_dir = "data/images/train"
-seg_dir = "data/labels/train"
-depth_dir = "data/images/train/depth_maps"
-train_dataset = SANPO_dataset(rgb_dir, seg_dir, depth_dir)
+seg_dir = "data/labels/train_semantic"
+#depth_dir = "data/images/train/depth_maps"
+train_dataset = SANPO_dataset(rgb_dir, seg_dir)
 
-rgb_dir = "data/images/val/rgb"
-seg_dir = "data/images/val/segmentation_masks"
-depth_dir = "data/images/val/depth_maps"
-val_dataset = SANPO_dataset(rgb_dir, seg_dir, depth_dir)
+rgb_dir = "data/images/val"
+seg_dir = "data/labels/val_semantic"
+#depth_dir = "data/images/val/depth_maps"
+
+val_dataset = SANPO_dataset(rgb_dir, seg_dir)
 
 train_loader = torch.utils.data.DataLoader(
     train_dataset, 
@@ -34,6 +35,7 @@ train_loader = torch.utils.data.DataLoader(
     shuffle=True, 
     num_workers=cfg.num_workers
 )
+
 val_loader = torch.utils.data.DataLoader(
     val_dataset, 
     batch_size=cfg.batch_size, 
@@ -41,8 +43,15 @@ val_loader = torch.utils.data.DataLoader(
     num_workers=cfg.num_workers
 )
 
+model = YOLO("model/yolo26n-seg.pt")
+check_point = "runs/segment/KODAMA/yolo26n-seg_100_64/weights/best.pt"
+if os.path.exists(check_point):
+    model = YOLO(check_point)
+    print(f"Loading best checkpoint of instance seg network from {check_point}")
+
+feature_extractor = FeatureExtractor(model=model, layers=[16, 19, 22])
 decoder = SementicDecoder(num_classes=15, p3_channel=64, p4_channel=128, p5_channel=256)
-feature_extractor = FeatureExtractor()
+
 
 optimizer = AdamW(
     decoder.parameters(),

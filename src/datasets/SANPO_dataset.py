@@ -5,16 +5,16 @@ import numpy as np
 import torch
 
 class SANPO_dataset(Dataset):
-    def __init__(self, rgb_dir, seg_dir, depth_dir):
+    def __init__(self, rgb_dir, seg_dir, depth_dir=None):
         super().__init__()
         self.rgb_dir = rgb_dir
         self.seg_dir = seg_dir
         self.depth_dir = depth_dir
         self.rgb_files = sorted([f for f in os.listdir(self.rgb_dir) if f.endswith(".png")])
         self.seg_files = sorted([f for f in os.listdir(self.seg_dir) if f.endswith(".png")])
-        self.depth_files = sorted([f for f in os.listdir(self.depth_dir) if f.endswith(".npy")])
+        #self.depth_files = sorted([f for f in os.listdir(self.depth_dir) if f.endswith(".npy")])
 
-        if not (len(self.rgb_files) == len(self.seg_files) == len(self.depth_files)):
+        if not (len(self.rgb_files) == len(self.seg_files)): # == len(self.depth_files)
             raise ValueError("video_frames, segmentation_masks, and depth_maps should have the same length")
     
     def __len__(self):
@@ -30,9 +30,9 @@ class SANPO_dataset(Dataset):
         instance = seg_bgr[1, :, :] * 256 + seg_bgr[2, :, :]
         seg = np.stack([semantic, instance], axis=0).astype(np.int32)
 
-        depth = np.load(os.path.join(self.depth_dir, self.depth_files[idx])).astype(np.float32)
+        # depth = np.load(os.path.join(self.depth_dir, self.depth_files[idx])).astype(np.float32)
  
-        return torch.from_numpy(rgb), torch.from_numpy(seg), torch.from_numpy(depth)
+        return torch.from_numpy(rgb), torch.from_numpy(seg) #, torch.from_numpy(depth)
 
 
 if __name__ == "__main__":

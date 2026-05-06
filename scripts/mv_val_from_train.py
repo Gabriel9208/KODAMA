@@ -16,8 +16,8 @@ def mv_val():
     val_sessions = set(config['split']['val_sessions'])
     
     dirs_to_process = [
-        (project_root / 'data' / 'images' / 'train', project_root / 'data' / 'images' / 'val'),
-        (project_root / 'data' / 'labels' / 'train', project_root / 'data' / 'labels' / 'val')
+        #(project_root / 'data' / 'images' / 'train', project_root / 'data' / 'images' / 'val'),
+        (project_root / 'data' / 'labels' / 'train_semantic', project_root / 'data' / 'labels' / 'val_semantic')
     ]
     
     for train_dir, val_dir in dirs_to_process:
