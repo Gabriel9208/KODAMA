@@ -81,7 +81,7 @@ class Trainer:
 
     def _run_epoch(self, stage: str) -> dict:
         is_train = stage == "train"
-        # Backbone is always in eval (frozen). Decoder switches with stage.
+
         self.feature_extractor.eval()
         self.decoder.train(is_train)
         loader = self.train_loader if is_train else self.val_loader
@@ -93,7 +93,7 @@ class Trainer:
         n_total = len(loader)
 
         with torch.set_grad_enabled(is_train):
-            for i, (rgb, seg, _depth) in enumerate(loader):
+            for i, (rgb, seg) in enumerate(loader):
                 rgb = rgb.to(self.cfg.device, non_blocking=True)
                 seg = seg.to(self.cfg.device, non_blocking=True)
 
@@ -112,8 +112,8 @@ class Trainer:
                 total_loss += loss.item()
                 n_batches += 1
 
-                preds = logits.argmax(dim=1)       # (B, H, W)
-                targets = seg[:, 0, :, :].long()   # semantic channel
+                preds = logits.argmax(dim=1)       
+                targets = seg[:, 0, :, :].long()   
                 conf += _confusion_matrix(preds.cpu(), targets.cpu(), self.num_classes)
 
         if is_train and self.scheduler is not None:

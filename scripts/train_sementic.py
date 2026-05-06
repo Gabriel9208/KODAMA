@@ -1,13 +1,13 @@
 import torch
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.optim import AdamW
-import albumentations as A
 
 from src.models.semantic_decoder import SementicDecoder
 from src.models.feature_extractor import FeatureExtractor
 from src.engine.trainer import Trainer, TrainerConfig
 from src.engine.callbacks import CheckpointCallback, LoggingCallback
 from src.datasets.SANPO_dataset import SANPO_dataset
+from src.utils.transform import train_transform
 
 cfg = TrainerConfig(
     max_epochs=20,
