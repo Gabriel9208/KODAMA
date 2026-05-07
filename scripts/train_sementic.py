@@ -1,13 +1,19 @@
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
 import torch
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.optim import AdamW
+from ultralytics import YOLO
 
 from src.models.semantic_decoder import SementicDecoder
 from src.models.feature_extractor import FeatureExtractor
 from src.engine.trainer import Trainer, TrainerConfig
 from src.engine.callbacks import CheckpointCallback, LoggingCallback
 from src.datasets.SANPO_dataset import SANPO_dataset
-from src.utils.transform import train_transform
+from src.utils.transform import train_transform, val_transform
 
 cfg = TrainerConfig(
     max_epochs=20,
@@ -20,20 +26,16 @@ cfg = TrainerConfig(
     resume_from="runs/semantic_decoder/last.pt",
 )
 
-cutmix_config = {
-    
-}
-
 rgb_dir = "data/images/train"
 seg_dir = "data/labels/train_semantic"
 #depth_dir = "data/images/train/depth_maps"
-train_dataset = SANPO_dataset(rgb_dir, seg_dir)
+train_dataset = SANPO_dataset(rgb_dir, seg_dir, transform=train_transform)
 
 rgb_dir = "data/images/val"
 seg_dir = "data/labels/val_semantic"
 #depth_dir = "data/images/val/depth_maps"
 
-val_dataset = SANPO_dataset(rgb_dir, seg_dir)
+val_dataset = SANPO_dataset(rgb_dir, seg_dir, transform=val_transform)
 
 train_loader = torch.utils.data.DataLoader(
     train_dataset, 
@@ -50,12 +52,13 @@ val_loader = torch.utils.data.DataLoader(
     num_workers=cfg.num_workers
 )
 
-model = YOLO("model/yolo26n-seg.pt")
+yolo = YOLO("model/yolo26n-seg.pt")
 check_point = "runs/segment/KODAMA/yolo26n-seg_100_64/weights/best.pt"
 if os.path.exists(check_point):
-    model = YOLO(check_point)
+    yolo = YOLO(check_point)
     print(f"Loading best checkpoint of instance seg network from {check_point}")
 
+model = yolo.model
 feature_extractor = FeatureExtractor(model=model, layers=[16, 19, 22])
 decoder = SementicDecoder(num_classes=15, p3_channel=64, p4_channel=128, p5_channel=256)
 
